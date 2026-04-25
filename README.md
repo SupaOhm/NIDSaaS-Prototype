@@ -4,7 +4,7 @@ NIDSaaS Prototype is a research-to-prototype repository for network intrusion de
 
 ## Current Status
 
-The offline IDS pipeline is available under `src/nidsaas/detection/`. Snort replay and alert-mapping utilities are available under `src/nidsaas/snort/`. The Kafka, Spark, gateway, alert dispatcher, webhook receiver, and injector UI services are planned but not implemented yet.
+The offline IDS pipeline is available under `src/nidsaas/detection/`. Snort replay and alert-mapping utilities are available under `src/nidsaas/snort/`. The local Gateway -> Kafka -> Consumer path is implemented for prototype validation. Spark, alert dispatching, webhook receiving, and injector UI services are planned but not implemented yet.
 
 ## Repository Structure
 
@@ -29,6 +29,7 @@ The offline IDS pipeline is available under `src/nidsaas/detection/`. Snort repl
 │       └── snort/
 ├── services/
 │   ├── gateway/
+│   ├── consumer/
 │   ├── spark_stream/
 │   ├── alert_dispatcher/
 │   ├── webhook_receiver/
@@ -123,6 +124,35 @@ Stop Kafka:
 ```
 
 If Kafka is unavailable, the gateway does not crash. It writes accepted upload events to `outputs/gateway_events.jsonl` and returns `published=false`.
+
+## Gateway -> Kafka -> Consumer Local Test
+
+Prototype step 2 adds a simple local Kafka consumer under `services/consumer/`. It subscribes to `raw.tenant.tenant_A` by default, parses gateway upload events as JSON, and prints the tenant, source, uploaded file path, and dedup decision.
+
+Terminal 1:
+
+```bash
+./scripts/start_kafka.sh
+./scripts/run_gateway.sh
+```
+
+Terminal 2:
+
+```bash
+./scripts/run_consumer.sh
+```
+
+Terminal 3:
+
+```bash
+./scripts/test_gateway_upload.sh
+```
+
+Expected result:
+
+- The first upload returns `published=true` and the consumer prints one upload event.
+- The duplicate upload returns `decision="drop_duplicate"` and should not publish a second Kafka message.
+- To consume another topic, run `TOPIC=raw.tenant.some_tenant ./scripts/run_consumer.sh`.
 
 ## Planned Streaming Prototype
 
