@@ -2,4 +2,4 @@
 set -euo pipefail
 
 echo "[KAFKA] topics"
-docker compose exec -T kafka kafka-topics.sh --bootstrap-server kafka:29092 --list
+docker compose exec -T kafka kafka-topics --bootstrap-server kafka:29092 --list
