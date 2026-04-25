@@ -29,6 +29,9 @@ logs/
 *.tmp
 *.bak
 
+# Gateway local uploads
+data/uploads/
+
 # Generated outputs and model artifacts
 outputs/
 *.joblib

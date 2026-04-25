@@ -56,6 +56,42 @@ The cached signature table used by the current pipeline is stored at:
 data/samples/signature_merged_predictions.csv
 ```
 
+## Gateway API Prototype
+
+Prototype step 1 is implemented under `services/gateway/`. The gateway accepts tenant PCAP/file uploads, applies mock authentication and safe batch deduplication, saves accepted files under `data/uploads/<tenant_id>/<source_id>/`, and publishes accepted upload metadata to Kafka topic `raw.tenant.<tenant_id>`.
+
+Run the gateway:
+
+```bash
+./scripts/run_gateway.sh
+```
+
+Upload a file:
+
+```bash
+curl -s -X POST http://127.0.0.1:8000/upload-pcap \
+  -H "x-api-key: dev-secret" \
+  -F tenant_id=acme \
+  -F source_id=edge-1 \
+  -F file_epoch=demo-001 \
+  -F start_offset=0 \
+  -F end_offset=1024 \
+  -F file=@data/pcap/pcap_CIC_IDS2017/Monday-WorkingHours.pcap
+```
+
+Manual duplicate test:
+
+```bash
+./scripts/test_gateway_upload.sh
+```
+
+Expected duplicate behavior:
+
+- First unique batch returns `decision="forward"` and is published to Kafka or written to `outputs/gateway_events.jsonl` if Kafka is unavailable.
+- Re-uploading the exact same file for the same tenant/source/epoch returns `decision="drop_duplicate"` and is not published.
+- A batch whose `end_offset` is already committed returns `decision="drop_stale"`.
+- An overlapping new batch returns `decision="trim_overlap"` and includes `effective_start_offset`.
+
 ## Planned Streaming Prototype
 
 The planned NIDSaaS streaming flow is:

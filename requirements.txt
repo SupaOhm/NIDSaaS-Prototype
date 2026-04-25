@@ -12,3 +12,9 @@ matplotlib
 torch
 torchvision
 torchaudio
+
+# Gateway API prototype
+fastapi
+uvicorn
+python-multipart
+kafka-python
