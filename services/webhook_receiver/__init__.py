@@ -1,0 +1,1 @@
+"""Webhook receiver service placeholder."""

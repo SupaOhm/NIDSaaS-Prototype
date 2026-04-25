@@ -1,0 +1,50 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Virtual environments and local config
+.venv/
+venv/
+env/
+.env
+.env.*
+!.env.example
+
+# macOS and editor files
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Logs and temporary files
+logs/
+*.log
+*.tmp
+*.bak
+
+# Generated outputs and model artifacts
+outputs/
+*.joblib
+*.pkl
+*.pickle
+*.pt
+*.pth
+*.onnx
+
+# Large local datasets
+data/csv/**/*.csv
+data/pcap/**/*
+*.pcap
+*.pcapng
+*.cap
+
+# Local cached/sample data can be large; keep it out of Git unless a tiny
+# fixture is intentionally added with a more specific negation rule.
+data/samples/*.csv

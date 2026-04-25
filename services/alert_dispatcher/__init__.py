@@ -1,0 +1,1 @@
+"""Alert dispatcher service placeholder."""
