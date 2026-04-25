@@ -36,3 +36,16 @@ services:
       KAFKA_CLUSTERS_0_NAME: local
       KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:29092
       KAFKA_CLUSTERS_0_ZOOKEEPER: zookeeper:2181
+
+  spark:
+    image: apache/spark:3.5.1
+    container_name: nidsaas_spark
+    depends_on:
+      - kafka
+    working_dir: /workspace
+    volumes:
+      - .:/workspace
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      KAFKA_TOPIC_PATTERN: raw.tenant.*
+      SPARK_MASTER: local[*]

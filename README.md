@@ -4,7 +4,7 @@ NIDSaaS Prototype is a research-to-prototype repository for network intrusion de
 
 ## Current Status
 
-The offline IDS pipeline is available under `src/nidsaas/detection/`. Snort replay and alert-mapping utilities are available under `src/nidsaas/snort/`. The local Gateway -> Kafka -> Consumer path is implemented for prototype validation. Spark, alert dispatching, webhook receiving, and injector UI services are planned but not implemented yet.
+The offline IDS pipeline is available under `src/nidsaas/detection/`. Snort replay and alert-mapping utilities are available under `src/nidsaas/snort/`. The local Gateway -> Kafka -> Consumer path is implemented, and Docker Spark can read upload events from Kafka for prototype validation. IDS-in-Spark, alert dispatching, webhook receiving, and injector UI services are planned but not implemented yet.
 
 ## Repository Structure
 
@@ -153,6 +153,45 @@ Expected result:
 - The first upload returns `published=true` and the consumer prints one upload event.
 - The duplicate upload returns `decision="drop_duplicate"` and should not publish a second Kafka message.
 - To consume another topic, run `TOPIC=raw.tenant.some_tenant ./scripts/run_consumer.sh`.
+
+## Kafka -> Spark Local Test
+
+Prototype step 3 adds a PySpark Structured Streaming reader under `services/spark_stream/`. It subscribes to topics matching `raw.tenant.*`, parses upload-event JSON, and prints normalized records with Kafka metadata. This only proves Kafka -> Spark consumption; IDS inference is not integrated yet.
+
+Kafka and Spark run in Docker Compose. The gateway still runs locally in the Python virtualenv and publishes to Kafka at `localhost:9092`; Spark reads the same broker from inside Docker at `kafka:29092`.
+
+Terminal 1:
+
+```bash
+./scripts/start_kafka.sh
+```
+
+Terminal 2:
+
+```bash
+./scripts/run_gateway.sh
+```
+
+Terminal 3:
+
+```bash
+./scripts/run_spark_stream.sh
+```
+
+Terminal 4:
+
+```bash
+./scripts/test_gateway_upload.sh
+```
+
+Expected Spark output:
+
+```text
+[SPARK] processing batch_id=..., rows=1
+tenant_A source_1 data/uploads/... forward raw.tenant.tenant_A ...
+```
+
+The Spark runner uses Docker by default and runs `spark-submit` in the `spark` Compose service. It defaults to Kafka connector package `org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.1`. Override with `SPARK_KAFKA_PACKAGE=...` if your Spark image requires a different package. Local Spark is optional with `RUN_SPARK_LOCAL=1 ./scripts/run_spark_stream.sh`.
 
 ## Planned Streaming Prototype
 
