@@ -60,23 +60,35 @@ data/samples/signature_merged_predictions.csv
 
 Prototype step 1 is implemented under `services/gateway/`. The gateway accepts tenant PCAP/file uploads, applies mock authentication and safe batch deduplication, saves accepted files under `data/uploads/<tenant_id>/<source_id>/`, and publishes accepted upload metadata to Kafka topic `raw.tenant.<tenant_id>`.
 
+Start Kafka:
+
+```bash
+./scripts/start_kafka.sh
+```
+
+Kafka is exposed to the host at `localhost:9092`. The optional Kafka UI is available at `http://localhost:8080`.
+
 Run the gateway:
 
 ```bash
 ./scripts/run_gateway.sh
 ```
 
-Upload a file:
+Upload a tiny sample file:
 
 ```bash
-curl -s -X POST http://127.0.0.1:8000/upload-pcap \
+mkdir -p data/samples
+echo "demo packet data for NIDSaaS gateway test" > data/samples/demo_upload.pcap
+
+curl -sS --connect-timeout 5 --max-time 20 \
+  -X POST http://localhost:8000/upload-pcap \
   -H "x-api-key: dev-secret" \
-  -F tenant_id=acme \
-  -F source_id=edge-1 \
-  -F file_epoch=demo-001 \
+  -F tenant_id=tenant_A \
+  -F source_id=source_1 \
+  -F file_epoch=demo_epoch \
   -F start_offset=0 \
-  -F end_offset=1024 \
-  -F file=@data/pcap/pcap_CIC_IDS2017/Monday-WorkingHours.pcap
+  -F end_offset=100 \
+  -F file=@data/samples/demo_upload.pcap
 ```
 
 Manual duplicate test:
@@ -91,6 +103,26 @@ Expected duplicate behavior:
 - Re-uploading the exact same file for the same tenant/source/epoch returns `decision="drop_duplicate"` and is not published.
 - A batch whose `end_offset` is already committed returns `decision="drop_stale"`.
 - An overlapping new batch returns `decision="trim_overlap"` and includes `effective_start_offset`.
+
+Consume the raw tenant topic:
+
+```bash
+./scripts/consume_kafka_topic.sh raw.tenant.tenant_A
+```
+
+List topics:
+
+```bash
+./scripts/list_kafka_topics.sh
+```
+
+Stop Kafka:
+
+```bash
+./scripts/stop_kafka.sh
+```
+
+If Kafka is unavailable, the gateway does not crash. It writes accepted upload events to `outputs/gateway_events.jsonl` and returns `published=false`.
 
 ## Planned Streaming Prototype
 
