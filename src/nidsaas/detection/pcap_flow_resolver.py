@@ -64,6 +64,37 @@ def _pcap_name_candidates(pcap_name: str) -> list[str]:
     return candidates
 
 
+def _first_existing(root: Path, names: tuple[str, ...]) -> Path | None:
+    for name in names:
+        path = root / name
+        if path.exists():
+            return path
+    return None
+
+
+def _generic_sample_match(pcap_name: str, root: Path) -> tuple[Path, str] | None:
+    normalized = re.sub(r"^[0-9a-fA-F]{12}_", "", pcap_name)
+    if normalized == "cic_attack_sample.pcap":
+        match = _first_existing(
+            root,
+            (
+                "Friday-WorkingHours-Afternoon-DDos.pcap_ISCX.csv",
+                "Friday-WorkingHours-Afternoon-PortScan.pcap_ISCX.csv",
+                "Friday-WorkingHours.pcap_ISCX.csv",
+            ),
+        )
+        if match is not None:
+            return match, "generic attack sample mapped to preferred CIC attack CSV"
+        friday_matches = sorted(root.glob("*Friday*.csv"))
+        if friday_matches:
+            return friday_matches[0], "generic attack sample mapped to first Friday CIC CSV"
+    if normalized == "cic_benign_sample.pcap":
+        match = _first_existing(root, ("Monday-WorkingHours.pcap_ISCX.csv",))
+        if match is not None:
+            return match, "generic benign sample mapped to Monday CIC CSV"
+    return None
+
+
 def resolve_pcap_to_flow_csv(
     pcap_path: str,
     csv_root: str = "data/csv/csv_CIC_IDS2017",
@@ -97,6 +128,16 @@ def resolve_pcap_to_flow_csv(
             "pcap_path": pcap_path,
             "flow_csv_path": "",
             "reason": f"CSV root not found: {csv_root}",
+        }
+
+    generic_match = _generic_sample_match(pcap_name, root)
+    if generic_match is not None:
+        csv_path, reason = generic_match
+        return {
+            "status": "matched",
+            "pcap_path": pcap_path,
+            "flow_csv_path": str(csv_path),
+            "reason": reason,
         }
 
     for candidate_name in pcap_candidates:

@@ -21,7 +21,8 @@ HOST="${INJECTOR_UI_HOST:-127.0.0.1}"
 PORT="${INJECTOR_UI_PORT:-7000}"
 
 echo "[PORTAL] starting tenant portal"
-echo "[PORTAL] URL: http://localhost:${PORT}"
+echo "[PORTAL] Tenant Portal: http://localhost:${PORT}"
+echo "[PORTAL] Webhook Receiver: http://localhost:9001"
 exec "$PYTHON_BIN" -m uvicorn services.injector_ui.app:app \
   --host "$HOST" \
   --port "$PORT"

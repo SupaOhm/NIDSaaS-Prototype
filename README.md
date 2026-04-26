@@ -4,7 +4,7 @@ NIDSaaS Prototype is a research-to-prototype repository for network intrusion de
 
 ## Current Status
 
-The offline IDS pipeline is available under `src/nidsaas/detection/`. Snort replay and alert-mapping utilities are available under `src/nidsaas/snort/`. The local Gateway -> Kafka -> Spark -> Webhook demo path is implemented using saved IDS artifacts from `outputs/offline_adapter_test`. Real CIC-IDS2017 PCAP upload is supported for the demo by resolving the uploaded PCAP name to an existing pre-extracted CICFlowMeter CSV and using saved IDS prediction/label evidence. A minimal tenant portal is available under `services/injector_ui/` for selecting tenant_A or tenant_B, uploading samples through the Gateway API, and opening tenant alert views. Full live CICFlowMeter extraction and full online IDS inference are planned but not implemented yet.
+The offline IDS pipeline is available under `src/nidsaas/detection/`. Snort replay and alert-mapping utilities are available under `src/nidsaas/snort/`. The local Gateway -> Kafka -> Spark -> Webhook demo path is implemented using saved IDS artifacts from `outputs/offline_adapter_test`. Real CIC-IDS2017 PCAP upload is supported for the demo by resolving the uploaded PCAP name to an existing pre-extracted CICFlowMeter CSV and using saved IDS prediction/label evidence. The injector UI is kept for future development. The current presentation demo uses CLI upload for reliability. Full live CICFlowMeter extraction and full online IDS inference are planned but not implemented yet.
 
 ## Repository Structure
 
@@ -187,13 +187,11 @@ Terminal 3:
 ./scripts/demo/run_spark_processor.sh
 ```
 
-Terminal 4:
+Create the two small PCAP samples once:
 
 ```bash
-./scripts/test/test_inject_attack.sh
+./scripts/test/create_cic_pcap_samples.sh
 ```
-
-Visual tenant portal demo:
 
 Terminal 1:
 
@@ -216,19 +214,29 @@ Terminal 3:
 Terminal 4:
 
 ```bash
-./scripts/demo/run_injector_ui.sh
+./scripts/test/pcap_upload.sh -d data/samples/pcap/cic_attack_sample.pcap -t tenant_A
 ```
 
-Open:
+View webhook UI:
 
 ```text
-http://localhost:7000
+http://localhost:9001/alerts/tenant_A/view
 ```
 
-To upload an available real CIC-IDS2017 PCAP instead of the small synthetic sample:
+Tenant B:
 
 ```bash
-./scripts/test/test_inject_real_cic_pcap.sh
+./scripts/test/pcap_upload.sh -d data/samples/pcap/cic_attack_sample.pcap -t tenant_B
+```
+
+```text
+http://localhost:9001/alerts/tenant_B/view
+```
+
+Duplicate upload check:
+
+```bash
+./scripts/test/test_duplicate_upload.sh
 ```
 
 Expected Spark output:
@@ -311,7 +319,7 @@ Terminal 3:
 Terminal 4:
 
 ```bash
-./scripts/test/test_inject_attack.sh
+./scripts/test/pcap_upload.sh -d data/samples/pcap/cic_attack_sample.pcap -t tenant_A
 ```
 
 Open:
@@ -326,7 +334,7 @@ Standardized commands:
 ./scripts/demo/start_infra.sh
 ./scripts/demo/start_services.sh
 ./scripts/demo/run_spark_processor.sh
-./scripts/test/test_inject_attack.sh
+./scripts/test/pcap_upload.sh -d data/samples/pcap/cic_attack_sample.pcap -t tenant_A
 ```
 
 Shutdown:
@@ -370,7 +378,7 @@ Terminal 3:
 Terminal 4:
 
 ```bash
-./scripts/test/test_inject_attack.sh
+./scripts/test/pcap_upload.sh -d data/samples/pcap/cic_attack_sample.pcap -t tenant_A
 ```
 
 Expected result:
@@ -393,7 +401,7 @@ PCAP Injector UI
 -> Tenant Webhook Receiver UI
 ```
 
-See `docs/PROTOTYPE_ARCHITECTURE.md` for the service plan. These services are scaffolded under `services/` but do not contain runtime logic yet.
+See `docs/PROTOTYPE_ARCHITECTURE.md` for the service plan. `services/injector_ui/` is kept as a future/optional UI, but the current demo uses CLI upload and the webhook receiver UI.
 
 ## Setup
 

@@ -9,7 +9,7 @@
 - [x] Docker Spark Structured Streaming reader for upload events
 - [x] Spark-first demo processor using saved offline IDS artifacts
 - [x] Real CIC PCAP upload demo path using pre-extracted CICFlowMeter CSV evidence
-- [x] Minimal tenant portal for sample upload and tenant alert viewing
+- [x] Minimal tenant portal scaffold kept for future development
 - [x] Webhook receiver with tenant-specific alert pages
 - [x] Multi-tenant demo verified for tenant_A and tenant_B
 - [x] Offline IDS audit and thin adapter wrapper
@@ -24,7 +24,8 @@
 - [ ] Confirm Kafka UI shows tenant topics
 - [ ] Confirm Spark terminal shows processing logs
 - [ ] Confirm real CIC PCAP upload resolves to matching flow CSV
-- [ ] Confirm tenant portal upload triggers tenant-specific alert view
+- [ ] Confirm `create_cic_pcap_samples.sh` creates exactly two non-empty sample PCAPs
+- [ ] Confirm CLI upload triggers tenant-specific alert view
 - [ ] Prepare 2-minute demo narration
 
 ## Next Engineering Milestones

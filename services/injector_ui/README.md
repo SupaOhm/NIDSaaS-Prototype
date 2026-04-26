@@ -1,8 +1,11 @@
 # Injector UI
 
-Minimal FastAPI tenant portal for the local demo. It lets a user select
-`tenant_A` or `tenant_B`, upload a sample or custom PCAP through the existing
-Gateway API, and open the tenant-specific webhook alert page.
+Future/optional FastAPI tenant portal. It is kept in the repository for later
+UI work, but the current presentation demo uses CLI upload for reliability:
+
+```bash
+./scripts/test/pcap_upload.sh -d data/samples/pcap/cic_attack_sample.pcap -t tenant_A
+```
 
 Run:
 
@@ -14,4 +17,10 @@ Open:
 
 ```text
 http://localhost:7000
+```
+
+Create the two demo PCAP samples first if they do not exist:
+
+```bash
+./scripts/test/create_cic_pcap_samples.sh
 ```

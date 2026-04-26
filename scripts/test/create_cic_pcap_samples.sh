@@ -7,7 +7,9 @@ cd "$REPO_ROOT"
 SOURCE_DIR="${CIC_PCAP_SOURCE_DIR:-data/pcap/pcap_CIC_IDS2017}"
 SAMPLE_DIR="${CIC_PCAP_SAMPLE_DIR:-data/samples/pcap}"
 PACKET_COUNT="${CIC_PCAP_SAMPLE_PACKETS:-5000}"
-ATTACK_REGEX='(DDos|DDoS|PortScan|Infilteration|WebAttacks|Friday)'
+ATTACK_REGEX='(DDos|DDoS|PortScan|WebAttacks|Infilteration|Friday)'
+ATTACK_OUTPUT="${SAMPLE_DIR}/cic_attack_sample.pcap"
+BENIGN_OUTPUT="${SAMPLE_DIR}/cic_benign_sample.pcap"
 
 if ! command -v editcap >/dev/null 2>&1; then
   echo "[SAMPLES] editcap is required to create PCAP samples." >&2
@@ -22,28 +24,39 @@ fi
 
 mkdir -p "$SAMPLE_DIR"
 
-first_matching_pcap() {
-  local mode="$1"
-  while IFS= read -r path; do
-    local name
-    name="$(basename "$path")"
-    if [[ "$mode" == "attack" && "$name" =~ $ATTACK_REGEX ]]; then
+find "$SAMPLE_DIR" -maxdepth 1 -type f -name '*.sample_*.pcap' -delete
+for link in "$ATTACK_OUTPUT" "$BENIGN_OUTPUT"; do
+  if [[ -L "$link" && ! -e "$link" ]]; then
+    echo "[SAMPLES] removing broken symlink: ${link}"
+    rm -f "$link"
+  fi
+done
+
+first_existing() {
+  for path in "$@"; do
+    if [[ -f "$path" ]]; then
       printf '%s\n' "$path"
       return 0
     fi
-    if [[ "$mode" == "benign" && ! "$name" =~ $ATTACK_REGEX ]]; then
+  done
+  return 1
+}
+
+select_attack_source() {
+  while IFS= read -r path; do
+    local name
+    name="$(basename "$path")"
+    if [[ "$name" =~ $ATTACK_REGEX ]]; then
       printf '%s\n' "$path"
       return 0
     fi
   done < <(find "$SOURCE_DIR" -maxdepth 1 -type f -iname '*.pcap' | sort)
-  return 1
+
+  first_existing "${SOURCE_DIR}/Friday-WorkingHours.pcap"
 }
 
-sample_name_for() {
-  local input="$1"
-  local base
-  base="$(basename "$input")"
-  printf '%s.sample.pcap\n' "${base%.pcap}"
+select_benign_source() {
+  first_existing "${SOURCE_DIR}/Monday-WorkingHours.pcap"
 }
 
 create_sample() {
@@ -51,31 +64,28 @@ create_sample() {
   local input="$2"
   local output="$3"
 
+  if [[ -z "$input" || ! -f "$input" ]]; then
+    echo "[SAMPLES] ${label} source PCAP not found" >&2
+    exit 1
+  fi
+
+  rm -f "$output"
   echo "[SAMPLES] creating ${label} sample"
   echo "[SAMPLES] input: ${input}"
   echo "[SAMPLES] output: ${output}"
-  if editcap -c "$PACKET_COUNT" "$input" "$output"; then
-    return 0
-  fi
-
-  echo "[SAMPLES] editcap -c failed; trying explicit range 1-${PACKET_COUNT}" >&2
   editcap -r "$input" "$output" "1-${PACKET_COUNT}"
+
+  if [[ ! -s "$output" ]]; then
+    echo "[SAMPLES] failed to create non-empty ${label} sample: ${output}" >&2
+    exit 1
+  fi
 }
 
-if attack_input="$(first_matching_pcap attack)"; then
-  attack_output="${SAMPLE_DIR}/$(sample_name_for "$attack_input")"
-  create_sample "attack" "$attack_input" "$attack_output"
-  ln -sf "$(basename "$attack_output")" "${SAMPLE_DIR}/cic_attack_sample.pcap"
-else
-  echo "[SAMPLES] no attack-ish CIC PCAP found in ${SOURCE_DIR}" >&2
-fi
+attack_input="$(select_attack_source || true)"
+benign_input="$(select_benign_source || true)"
 
-if benign_input="$(first_matching_pcap benign)"; then
-  benign_output="${SAMPLE_DIR}/$(sample_name_for "$benign_input")"
-  create_sample "benign" "$benign_input" "$benign_output"
-  ln -sf "$(basename "$benign_output")" "${SAMPLE_DIR}/cic_benign_sample.pcap"
-else
-  echo "[SAMPLES] no benign-looking CIC PCAP found in ${SOURCE_DIR}" >&2
-fi
+create_sample "attack" "$attack_input" "$ATTACK_OUTPUT"
+create_sample "benign" "$benign_input" "$BENIGN_OUTPUT"
 
-echo "[SAMPLES] done"
+echo "[SAMPLES] final sample sizes:"
+wc -c "$ATTACK_OUTPUT" "$BENIGN_OUTPUT"

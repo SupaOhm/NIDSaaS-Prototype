@@ -27,15 +27,31 @@ for name in gateway webhook_receiver; do
   fi
 done
 
-if [[ -f ".pids/demo_processor.pid" ]]; then
-  pid="$(cat .pids/demo_processor.pid)"
-  if kill -0 "$pid" >/dev/null 2>&1; then
-    echo "[OK]   demo_processor fallback pid=${pid}"
+for name in demo_processor injector_ui; do
+  pid_file=".pids/${name}.pid"
+  label="${name}"
+  [[ "$name" == "injector_ui" ]] && label="injector_ui optional/future"
+  if [[ -f "$pid_file" ]]; then
+    pid="$(cat "$pid_file")"
+    if kill -0 "$pid" >/dev/null 2>&1; then
+      echo "[OK]   ${label} pid=${pid}"
+    else
+      echo "[FAIL] ${label} pid=${pid} not running"
+    fi
   else
-    echo "[FAIL] demo_processor fallback pid=${pid} not running"
+    echo "[INFO] ${label} not running"
   fi
+done
+
+echo
+echo "[SERVICE] Local port listeners"
+if command -v lsof >/dev/null 2>&1; then
+  for port in 7000 8000 9001; do
+    echo "[PORT] ${port}"
+    lsof -nP -iTCP:"$port" -sTCP:LISTEN || echo "[PORT] ${port} no listener"
+  done
 else
-  echo "[INFO] demo_processor fallback not running"
+  echo "[INFO] lsof not found"
 fi
 
 echo

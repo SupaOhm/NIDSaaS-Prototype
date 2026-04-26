@@ -8,13 +8,15 @@ The scripts are grouped by purpose so the demo workflow stays transparent.
 ./scripts/demo/start_infra.sh
 ./scripts/demo/start_services.sh
 ./scripts/demo/run_spark_processor.sh
-./scripts/test/test_inject_attack.sh
+./scripts/test/pcap_upload.sh -d data/samples/pcap/cic_attack_sample.pcap -t tenant_A
 ```
 
 Real CIC PCAP upload:
 
 ```bash
-./scripts/test/test_inject_real_cic_pcap.sh
+./scripts/test/create_cic_pcap_samples.sh
+./scripts/test/pcap_upload.sh -d data/samples/pcap/cic_attack_sample.pcap -t tenant_A
+./scripts/test/pcap_upload.sh -d data/samples/pcap/cic_attack_sample.pcap -t tenant_B
 ```
 
 Open:
@@ -23,7 +25,7 @@ Open:
 http://localhost:9001/alerts/tenant_A/view
 ```
 
-Optional tenant portal:
+Future/optional tenant portal, not used in the main demo:
 
 ```bash
 ./scripts/demo/run_injector_ui.sh
