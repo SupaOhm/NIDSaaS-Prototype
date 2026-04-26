@@ -4,7 +4,7 @@ NIDSaaS Prototype is a research-to-prototype repository for network intrusion de
 
 ## Current Status
 
-The offline IDS pipeline is available under `src/nidsaas/detection/`. Snort replay and alert-mapping utilities are available under `src/nidsaas/snort/`. The local Gateway -> Kafka -> Consumer path is implemented, and Docker Spark can read upload events from Kafka for prototype validation. IDS-in-Spark, alert dispatching, webhook receiving, and injector UI services are planned but not implemented yet.
+The offline IDS pipeline is available under `src/nidsaas/detection/`. Snort replay and alert-mapping utilities are available under `src/nidsaas/snort/`. The local Gateway -> Kafka -> Consumer path is implemented, Docker Spark can read upload events from Kafka, and a demo webhook receiver can display fake tenant alerts. IDS-in-Spark and injector UI services are planned but not implemented yet.
 
 ## Repository Structure
 
@@ -192,6 +192,43 @@ tenant_A source_1 data/uploads/... forward raw.tenant.tenant_A ...
 ```
 
 The Spark runner uses Docker by default and runs `spark-submit` in the `spark` Compose service. It defaults to Kafka connector package `org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.1`. Override with `SPARK_KAFKA_PACKAGE=...` if your Spark image requires a different package. Local Spark is optional with `RUN_SPARK_LOCAL=1 ./scripts/run_spark_stream.sh`.
+
+## Webhook Alert Demo
+
+Prototype step 4 adds a tenant-scoped webhook receiver under `services/webhook_receiver/` and a small dispatch helper under `services/alert_dispatcher/`. This milestone uses fake detection alerts so the demo can show alert delivery without running full IDS training.
+
+Terminal 1:
+
+```bash
+./scripts/run_webhook_receiver.sh
+```
+
+Send a fake alert:
+
+```bash
+./scripts/test_webhook_alert.sh
+```
+
+Open the tenant alert view:
+
+```text
+http://localhost:9001/alerts/tenant_A/view
+```
+
+End-to-end demo with gateway upload plus fake alert:
+
+```bash
+./scripts/start_kafka.sh
+./scripts/run_gateway.sh
+./scripts/run_webhook_receiver.sh
+./scripts/test_end_to_end_fake_alert.sh
+```
+
+Expected result:
+
+- Gateway accepts the sample upload and publishes metadata to Kafka.
+- The test script posts a fake alert to `tenant_A`.
+- The webhook receiver stores the alert in memory and shows it at `http://localhost:9001/alerts/tenant_A/view`.
 
 ## Planned Streaming Prototype
 
