@@ -4,7 +4,7 @@ NIDSaaS Prototype is a research-to-prototype repository for network intrusion de
 
 ## Current Status
 
-The offline IDS pipeline is available under `src/nidsaas/detection/`. Snort replay and alert-mapping utilities are available under `src/nidsaas/snort/`. The local Gateway -> Kafka -> Spark -> Webhook demo path is implemented using saved IDS artifacts from `outputs/offline_adapter_test`. Full online IDS inference and injector UI services are planned but not implemented yet.
+The offline IDS pipeline is available under `src/nidsaas/detection/`. Snort replay and alert-mapping utilities are available under `src/nidsaas/snort/`. The local Gateway -> Kafka -> Spark -> Webhook demo path is implemented using saved IDS artifacts from `outputs/offline_adapter_test`. Real CIC-IDS2017 PCAP upload is supported for the demo by resolving the uploaded PCAP name to an existing pre-extracted CICFlowMeter CSV and using saved IDS prediction/label evidence. Full live CICFlowMeter extraction, full online IDS inference, and injector UI services are planned but not implemented yet.
 
 ## Repository Structure
 
@@ -165,7 +165,9 @@ Prototype step 3 adds a PySpark Structured Streaming reader under `services/spar
 
 Kafka and Spark run in Docker Compose. The gateway still runs locally in the Python virtualenv and publishes to Kafka at `localhost:9092`; Spark reads the same broker from inside Docker at `kafka:29092`.
 
-The Spark job uses `src/nidsaas/detection/demo_inference_adapter.py`, which loads saved offline IDS outputs from `outputs/offline_adapter_test`. It does not retrain RF, conformal calibration, or the escalation gate during the live demo. Until a true inference-only cascade API exists, the adapter clearly marks results as `spark_real_ids_artifact_demo` and uses precomputed IDS metrics/prediction artifacts as demo evidence.
+The Spark job uses `src/nidsaas/detection/demo_inference_adapter.py`, which loads saved offline IDS outputs from `outputs/offline_adapter_test`. It does not retrain RF, conformal calibration, or the escalation gate during the live demo. For real CIC-IDS2017 PCAP uploads, the adapter uses `src/nidsaas/detection/pcap_flow_resolver.py` to map the uploaded PCAP to the corresponding pre-extracted CICFlowMeter CSV under `data/csv/csv_CIC_IDS2017`. If saved cascade predictions contain rows for that CSV via `source_file`, those prediction rows are preferred as IDS evidence; otherwise the adapter falls back to the matched CSV `Label` column and marks the evidence source as `matched_cic_flow_csv_label`.
+
+Live PCAP-to-flow extraction is not implemented in the runtime path yet. The current demo uses real PCAP upload as the trigger, existing CICFlowMeter CSVs as flow evidence, and existing IDS artifacts/outputs as model evidence.
 
 Terminal 1:
 
@@ -191,16 +193,26 @@ Terminal 4:
 ./scripts/test/test_inject_attack.sh
 ```
 
+To upload an available real CIC-IDS2017 PCAP instead of the small synthetic sample:
+
+```bash
+./scripts/test/test_inject_real_cic_pcap.sh
+```
+
 Expected Spark output:
 
 ```text
 [SPARK] processing batch_id=..., rows=1
 [SPARK] preprocessing upload event
 [SPARK] calling IDS demo inference adapter
+[SPARK] received PCAP: data/uploads/tenant_A/source_1/...
+[SPARK] matched flow CSV: data/csv/csv_CIC_IDS2017/...
+[SPARK] evidence_source: ids_prediction_artifact_source_file
+[SPARK] prediction=attack
 tenant_A source_1 demo_attack_upload.pcap attack high spark_real_ids_artifact_demo raw.tenant.tenant_A ...
 ```
 
-The Spark runner uses Docker by default and runs `spark-submit` in the `spark` Compose service. It defaults to Kafka connector package `org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.1`, `IDS_ARTIFACTS_DIR=outputs/offline_adapter_test`, `DEMO_FORCE_ATTACK=1`, and `WEBHOOK_BASE_URL=http://host.docker.internal:9001`. Override with `SPARK_KAFKA_PACKAGE=...` if your Spark image requires a different package.
+The Spark runner uses Docker by default and runs `spark-submit` in the `spark` Compose service. It defaults to Kafka connector package `org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.1`, `IDS_ARTIFACTS_DIR=outputs/offline_adapter_test`, `CIC_FLOW_CSV_ROOT=data/csv/csv_CIC_IDS2017`, `DEMO_FORCE_ATTACK=0`, and `WEBHOOK_BASE_URL=http://host.docker.internal:9001`. Set `DEMO_FORCE_ATTACK=1` only as a debug override. Override with `SPARK_KAFKA_PACKAGE=...` if your Spark image requires a different package.
 
 ## Webhook Alert Demo
 

@@ -94,13 +94,21 @@ def _build_alert(row, ids_result: dict, webhook_base_url: str) -> tuple[dict, st
         "attack_type": ids_result.get("attack_type", "HybridCascadeDemo"),
         "stage": ids_result.get("stage", "spark_real_ids_artifact_demo"),
         "evidence": {
+            "original_pcap_path": evidence.get("original_pcap_path", file_path),
+            "matched_flow_csv_path": evidence.get("matched_flow_csv_path"),
+            "evidence_source": evidence.get("evidence_source"),
+            "attack_label_count": evidence.get("attack_label_count"),
+            "attack_rows_sampled": evidence.get("attack_rows_sampled"),
+            "attack_prediction_count": evidence.get("attack_prediction_count"),
+            "total_rows_sampled": evidence.get("total_rows_sampled"),
+            "ids_artifacts_summary": evidence.get("ids_artifacts_summary"),
             "file_path": file_path,
             "file_name": file_name,
             "kafka_topic": row["topic"],
             "kafka_offset": row["offset"],
             "batch_hash": row["batch_hash"],
             "gateway_decision": row["decision"],
-            "ids_artifacts_dir": evidence.get("artifacts_dir"),
+            "ids_artifacts_dir": evidence.get("ids_artifacts_dir") or evidence.get("artifacts_dir"),
             "ids_metrics_summary": evidence.get("metrics_used"),
             "ids_sample_row_id": evidence.get("sample_row_id"),
             "note": evidence.get("note", "uses precomputed trained IDS artifacts; no retraining"),
@@ -117,6 +125,7 @@ def print_batch(batch_df: DataFrame, batch_id: int) -> None:
 
     print(f"[SPARK] processing batch_id={batch_id}, rows={rows}", flush=True)
     artifacts_dir = os.getenv("IDS_ARTIFACTS_DIR", "outputs/offline_adapter_test")
+    csv_root = os.getenv("CIC_FLOW_CSV_ROOT", "data/csv/csv_CIC_IDS2017")
     webhook_base_url = os.getenv("WEBHOOK_BASE_URL", "http://host.docker.internal:9001")
     result_rows = []
 
@@ -146,10 +155,16 @@ def print_batch(batch_df: DataFrame, batch_id: int) -> None:
             source_id=row["source_id"] or "unknown_source",
             file_path=file_path,
             artifacts_dir=artifacts_dir,
+            csv_root=csv_root,
         )
         prediction = ids_result.get("prediction", "benign")
         severity = ids_result.get("severity", "info")
         stage = ids_result.get("stage", "spark_real_ids_artifact_demo")
+        evidence = ids_result.get("evidence", {})
+        print(f"[SPARK] received PCAP: {evidence.get('original_pcap_path', file_path)}", flush=True)
+        print(f"[SPARK] matched flow CSV: {evidence.get('matched_flow_csv_path', '')}", flush=True)
+        print(f"[SPARK] evidence_source: {evidence.get('evidence_source', '')}", flush=True)
+        print(f"[SPARK] prediction={prediction}", flush=True)
 
         if prediction == "attack":
             alert, url = _build_alert(row, ids_result, webhook_base_url)
@@ -192,6 +207,7 @@ def main() -> None:
     topic_pattern = os.getenv("KAFKA_TOPIC_PATTERN", "raw.tenant.*")
     spark_master = os.getenv("SPARK_MASTER", "local[*]")
     artifacts_dir = os.getenv("IDS_ARTIFACTS_DIR", "outputs/offline_adapter_test")
+    csv_root = os.getenv("CIC_FLOW_CSV_ROOT", "data/csv/csv_CIC_IDS2017")
     webhook_base_url = os.getenv("WEBHOOK_BASE_URL", "http://host.docker.internal:9001")
 
     spark = (
@@ -206,6 +222,7 @@ def main() -> None:
     print(f"[SPARK] topic pattern: {topic_pattern}", flush=True)
     print(f"[SPARK] master: {spark_master}", flush=True)
     print(f"[SPARK] IDS artifacts dir: {artifacts_dir}", flush=True)
+    print(f"[SPARK] CIC flow CSV root: {csv_root}", flush=True)
     print(f"[SPARK] webhook base URL: {webhook_base_url}", flush=True)
     print(f"[SPARK] DEMO_FORCE_ATTACK: {os.getenv('DEMO_FORCE_ATTACK', '0')}", flush=True)
 
