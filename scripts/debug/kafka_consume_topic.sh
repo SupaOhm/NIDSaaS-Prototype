@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+cd "$REPO_ROOT"
+
 TOPIC="${1:-raw.tenant.tenant_A}"
 TIMEOUT_MS="${KAFKA_CONSUME_TIMEOUT_MS:-10000}"
 

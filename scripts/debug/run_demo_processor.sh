@@ -1,10 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+cd "$REPO_ROOT"
+
 export KAFKA_BOOTSTRAP_SERVERS="${KAFKA_BOOTSTRAP_SERVERS:-localhost:9092}"
 export TOPIC="${TOPIC:-raw.tenant.tenant_A}"
 export WEBHOOK_BASE_URL="${WEBHOOK_BASE_URL:-http://localhost:9001}"
-export PYTHONPATH="${PYTHONPATH:-}:$(pwd)/src"
+export PYTHONPATH="${PYTHONPATH:-}:$REPO_ROOT/src"
 
 if [[ -n "${VIRTUAL_ENV:-}" && -x "${VIRTUAL_ENV}/bin/python" ]]; then
   PYTHON_BIN="${VIRTUAL_ENV}/bin/python"

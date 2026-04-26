@@ -2,7 +2,7 @@
 
 ## Project Structure & Module Organization
 
-Core reusable code lives under `src/nidsaas/`. The current offline IDS pipeline is in `src/nidsaas/detection/`; Snort utilities and rules are in `src/nidsaas/snort/`. Prototype service code lives in `services/`, with the implemented FastAPI gateway in `services/gateway/`. Runnable helper scripts belong in `scripts/`. Architecture notes go in `docs/`. Large local datasets are kept under `data/csv/` and `data/pcap/`; generated artifacts and gateway fallbacks go under `outputs/`. Do not commit raw PCAPs, CIC CSVs, uploads, or model artifacts.
+Core reusable code lives under `src/nidsaas/`. The current offline IDS pipeline is in `src/nidsaas/detection/`; Snort utilities and rules are in `src/nidsaas/snort/`. Prototype service code lives in `services/`, with the implemented FastAPI gateway in `services/gateway/`. Runnable scripts are grouped under `scripts/demo/`, `scripts/test/`, `scripts/debug/`, and `scripts/offline/`. Architecture notes go in `docs/`. Large local datasets are kept under `data/csv/` and `data/pcap/`; generated artifacts and gateway fallbacks go under `outputs/`. Do not commit raw PCAPs, CIC CSVs, uploads, or model artifacts.
 
 ## Build, Test, and Development Commands
 
@@ -17,29 +17,38 @@ pip install -r requirements.txt
 Run the offline IDS pipeline:
 
 ```bash
-python scripts/run_pipeline.py --data-dir data/csv/csv_CIC_IDS2017
+python scripts/offline/run_pipeline.py --data-dir data/csv/csv_CIC_IDS2017
 ```
 
-Run Kafka infrastructure:
+Run the main demo workflow:
 
 ```bash
-./scripts/start_kafka.sh
-./scripts/list_kafka_topics.sh
-./scripts/consume_kafka_topic.sh raw.tenant.tenant_A
-./scripts/stop_kafka.sh
+./scripts/demo/start_infra.sh
+./scripts/demo/start_services.sh
+./scripts/demo/run_spark_processor.sh
+./scripts/test/test_inject_attack.sh
 ```
 
-Run and test the gateway:
+Stop the demo:
 
 ```bash
-./scripts/run_gateway.sh
-./scripts/test_gateway_upload.sh
+./scripts/demo/stop_services.sh
+./scripts/demo/stop_infra.sh
+```
+
+Debug Kafka and gateway behavior:
+
+```bash
+./scripts/debug/kafka_list_topics.sh
+./scripts/debug/kafka_consume_topic.sh raw.tenant.tenant_A
+./scripts/debug/run_simple_consumer.sh
+./scripts/test/test_duplicate_upload.sh
 ```
 
 Validate Python syntax before committing:
 
 ```bash
-python3 -m py_compile services/gateway/*.py scripts/*.py
+python3 -m py_compile services/gateway/*.py scripts/offline/*.py
 ```
 
 ## Coding Style & Naming Conventions
@@ -48,7 +57,7 @@ Use Python 3, 4-space indentation, type hints for new public functions, and clea
 
 ## Testing Guidelines
 
-There is no formal test suite yet. Use lightweight script-based checks: `bash -n scripts/*.sh`, `python3 -m py_compile ...`, `docker compose config --quiet`, and `scripts/test_gateway_upload.sh` for the gateway path. Add future tests near the code they validate or under a top-level `tests/` directory.
+There is no formal test suite yet. Use lightweight script-based checks: `bash -n scripts/demo/*.sh scripts/test/*.sh scripts/debug/*.sh`, `python3 -m py_compile ...`, `docker compose config --quiet`, and `scripts/test/test_duplicate_upload.sh` for the gateway path. Add future tests near the code they validate or under a top-level `tests/` directory.
 
 ## Commit & Pull Request Guidelines
 
