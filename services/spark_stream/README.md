@@ -19,3 +19,7 @@ The gateway still runs locally and publishes to host Kafka at `localhost:9092`. 
 The current demo path calls the IDS demo inference adapter backed by
 `outputs/offline_adapter_test` artifacts and dispatches alerts to the webhook
 receiver.
+
+For CIC-IDS2017 PCAP uploads, Spark resolves the uploaded PCAP name to an
+existing pre-extracted CICFlowMeter CSV under `data/csv/csv_CIC_IDS2017`.
+Live CICFlowMeter extraction is not implemented in this demo path.

@@ -11,10 +11,28 @@ The scripts are grouped by purpose so the demo workflow stays transparent.
 ./scripts/test/test_inject_attack.sh
 ```
 
+Real CIC PCAP upload:
+
+```bash
+./scripts/test/test_inject_real_cic_pcap.sh
+```
+
 Open:
 
 ```text
 http://localhost:9001/alerts/tenant_A/view
+```
+
+Optional tenant portal:
+
+```bash
+./scripts/demo/run_injector_ui.sh
+```
+
+Open:
+
+```text
+http://localhost:7000
 ```
 
 Shutdown:

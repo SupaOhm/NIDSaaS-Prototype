@@ -57,6 +57,10 @@ def _pcap_name_candidates(pcap_name: str) -> list[str]:
     stripped = re.sub(r"^[0-9a-fA-F]{12}_", "", pcap_name)
     if stripped != pcap_name:
         candidates.append(stripped)
+    for candidate in list(candidates):
+        sample_stripped = candidate.replace(".sample.pcap", ".pcap")
+        if sample_stripped != candidate:
+            candidates.append(sample_stripped)
     return candidates
 
 

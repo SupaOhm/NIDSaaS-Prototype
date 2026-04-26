@@ -4,7 +4,7 @@ NIDSaaS Prototype is a research-to-prototype repository for network intrusion de
 
 ## Current Status
 
-The offline IDS pipeline is available under `src/nidsaas/detection/`. Snort replay and alert-mapping utilities are available under `src/nidsaas/snort/`. The local Gateway -> Kafka -> Spark -> Webhook demo path is implemented using saved IDS artifacts from `outputs/offline_adapter_test`. Real CIC-IDS2017 PCAP upload is supported for the demo by resolving the uploaded PCAP name to an existing pre-extracted CICFlowMeter CSV and using saved IDS prediction/label evidence. Full live CICFlowMeter extraction, full online IDS inference, and injector UI services are planned but not implemented yet.
+The offline IDS pipeline is available under `src/nidsaas/detection/`. Snort replay and alert-mapping utilities are available under `src/nidsaas/snort/`. The local Gateway -> Kafka -> Spark -> Webhook demo path is implemented using saved IDS artifacts from `outputs/offline_adapter_test`. Real CIC-IDS2017 PCAP upload is supported for the demo by resolving the uploaded PCAP name to an existing pre-extracted CICFlowMeter CSV and using saved IDS prediction/label evidence. A minimal tenant portal is available under `services/injector_ui/` for selecting tenant_A or tenant_B, uploading samples through the Gateway API, and opening tenant alert views. Full live CICFlowMeter extraction and full online IDS inference are planned but not implemented yet.
 
 ## Repository Structure
 
@@ -193,6 +193,38 @@ Terminal 4:
 ./scripts/test/test_inject_attack.sh
 ```
 
+Visual tenant portal demo:
+
+Terminal 1:
+
+```bash
+./scripts/demo/start_infra.sh
+```
+
+Terminal 2:
+
+```bash
+./scripts/demo/start_services.sh
+```
+
+Terminal 3:
+
+```bash
+./scripts/demo/run_spark_processor.sh
+```
+
+Terminal 4:
+
+```bash
+./scripts/demo/run_injector_ui.sh
+```
+
+Open:
+
+```text
+http://localhost:7000
+```
+
 To upload an available real CIC-IDS2017 PCAP instead of the small synthetic sample:
 
 ```bash
@@ -216,7 +248,7 @@ The Spark runner uses Docker by default and runs `spark-submit` in the `spark` C
 
 ## Webhook Alert Demo
 
-Prototype step 4 adds a tenant-scoped webhook receiver under `services/webhook_receiver/` and a small dispatch helper under `services/alert_dispatcher/`. This milestone uses fake detection alerts so the demo can show alert delivery without running full IDS training.
+Prototype step 4 adds a tenant-scoped webhook receiver under `services/webhook_receiver/` and a small dispatch helper under `services/alert_dispatcher/`. The tenant alert page updates live with Server-Sent Events when new alerts arrive, while the JSON endpoint remains available for debugging.
 
 Terminal 1:
 
@@ -246,7 +278,7 @@ Direct webhook debug test:
 Expected result:
 
 - The test script posts a fake alert directly to `tenant_A`.
-- The webhook receiver stores the alert in memory and shows it at `http://localhost:9001/alerts/tenant_A/view`.
+- The webhook receiver stores the alert in memory and pushes it live to `http://localhost:9001/alerts/tenant_A/view`.
 
 ## Main Demo Workflow
 

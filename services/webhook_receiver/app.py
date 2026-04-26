@@ -2,16 +2,53 @@
 
 from __future__ import annotations
 
+import asyncio
+import json
 from collections import defaultdict
 from html import escape
 from typing import Any
 
 from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, StreamingResponse
 
 
 app = FastAPI(title="NIDSaaS Webhook Receiver")
 _ALERTS: dict[str, list[dict[str, Any]]] = defaultdict(list)
+_ALERT_STREAMS: dict[str, set[asyncio.Queue[dict[str, Any]]]] = defaultdict(set)
+
+
+def _evidence_summary(alert: dict[str, Any]) -> str:
+    evidence = alert.get("evidence", {})
+    if isinstance(evidence, dict):
+        summary = {
+            "original_pcap_path": evidence.get("original_pcap_path"),
+            "matched_flow_csv_path": evidence.get("matched_flow_csv_path"),
+            "evidence_source": evidence.get("evidence_source"),
+            "attack_label_count": evidence.get("attack_label_count"),
+            "attack_prediction_count": evidence.get("attack_prediction_count"),
+            "total_rows_sampled": evidence.get("total_rows_sampled"),
+            "ids_artifacts_dir": evidence.get("ids_artifacts_dir"),
+        }
+        return json.dumps(
+            {key: value for key, value in summary.items() if value not in (None, "")},
+            sort_keys=True,
+        )
+    return str(evidence)
+
+
+def _alert_row(alert: dict[str, Any], tenant_id: str) -> str:
+    return (
+        "<tr>"
+        f"<td>{escape(str(alert.get('alert_id', '')))}</td>"
+        f"<td>{escape(str(alert.get('tenant_id', tenant_id)))}</td>"
+        f"<td>{escape(str(alert.get('severity', '')))}</td>"
+        f"<td>{escape(str(alert.get('prediction', '')))}</td>"
+        f"<td>{escape(str(alert.get('attack_type', '')))}</td>"
+        f"<td>{escape(str(alert.get('stage', '')))}</td>"
+        f"<td>{escape(str(alert.get('timestamp', '')))}</td>"
+        f"<td><code>{escape(_evidence_summary(alert))}</code></td>"
+        "</tr>"
+    )
 
 
 @app.post("/webhook/{tenant_id}")
@@ -23,6 +60,8 @@ async def receive_webhook(tenant_id: str, request: Request) -> dict[str, Any]:
     stored_alert = dict(alert)
     stored_alert.setdefault("tenant_id", tenant_id)
     _ALERTS[tenant_id].append(stored_alert)
+    for queue in list(_ALERT_STREAMS.get(tenant_id, set())):
+        queue.put_nowait(stored_alert)
     print(f"[WEBHOOK] received alert tenant_id={tenant_id}", flush=True)
     return {
         "status": "received",
@@ -34,6 +73,37 @@ async def receive_webhook(tenant_id: str, request: Request) -> dict[str, Any]:
 @app.get("/alerts/{tenant_id}")
 def list_alerts(tenant_id: str) -> dict[str, Any]:
     return {"tenant_id": tenant_id, "alerts": _ALERTS.get(tenant_id, [])}
+
+
+@app.get("/alerts/{tenant_id}/stream")
+async def stream_alerts(tenant_id: str, request: Request) -> StreamingResponse:
+    queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
+    _ALERT_STREAMS[tenant_id].add(queue)
+
+    async def event_stream():
+        try:
+            yield "event: status\ndata: connected\n\n"
+            while True:
+                if await request.is_disconnected():
+                    break
+                try:
+                    alert = await asyncio.wait_for(queue.get(), timeout=15)
+                except asyncio.TimeoutError:
+                    yield ": keepalive\n\n"
+                    continue
+                payload = json.dumps(alert, default=str)
+                yield f"event: alert\ndata: {payload}\n\n"
+        finally:
+            _ALERT_STREAMS[tenant_id].discard(queue)
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+        },
+    )
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -57,21 +127,9 @@ def index() -> str:
 @app.get("/alerts/{tenant_id}/view", response_class=HTMLResponse)
 def view_alerts(tenant_id: str) -> str:
     alerts = _ALERTS.get(tenant_id, [])
-    rows = []
-    for alert in alerts:
-        rows.append(
-            "<tr>"
-            f"<td>{escape(str(alert.get('timestamp', '')))}</td>"
-            f"<td>{escape(str(alert.get('alert_id', '')))}</td>"
-            f"<td>{escape(str(alert.get('source_id', '')))}</td>"
-            f"<td>{escape(str(alert.get('severity', '')))}</td>"
-            f"<td>{escape(str(alert.get('prediction', '')))}</td>"
-            f"<td>{escape(str(alert.get('attack_type', '')))}</td>"
-            f"<td>{escape(str(alert.get('evidence', '')))}</td>"
-            "</tr>"
-        )
-
-    body = "\n".join(rows) or '<tr><td colspan="7">No alerts received yet.</td></tr>'
+    rows = [_alert_row(alert, tenant_id) for alert in alerts]
+    body = "\n".join(rows) or '<tr><td colspan="8">No alerts received yet.</td></tr>'
+    tenant_json = json.dumps(tenant_id)
     return f"""
     <!doctype html>
     <html>
@@ -82,25 +140,106 @@ def view_alerts(tenant_id: str) -> str:
           table {{ border-collapse: collapse; width: 100%; }}
           th, td {{ border: 1px solid #ddd; padding: 8px; text-align: left; vertical-align: top; }}
           th {{ background: #f4f4f4; }}
+          code {{ white-space: pre-wrap; overflow-wrap: anywhere; }}
+          .muted {{ color: #666; }}
+          .status {{ display: inline-block; padding: 4px 8px; border-radius: 4px; background: #eef4ff; }}
+          .connected {{ color: #137333; }}
+          .disconnected {{ color: #b3261e; }}
         </style>
       </head>
       <body>
         <h1>Alerts for {escape(tenant_id)}</h1>
-        <p><a href="/">All tenants</a> | <a href="/alerts/{escape(tenant_id)}">JSON</a></p>
+        <p class="muted">Tenant webhook receiver storage. Alerts are held in memory for this local demo process.</p>
+        <p><a href="/">All tenants</a> | <a href="/alerts/{escape(tenant_id)}">JSON</a> | <button type="button" onclick="window.location.reload()">Refresh manually</button></p>
+        <p><span id="live-status" class="status disconnected">Live connecting...</span> <span class="muted">Last updated: <span id="last-updated">initial load</span></span></p>
         <table>
           <thead>
             <tr>
-              <th>Timestamp</th>
               <th>Alert ID</th>
-              <th>Source</th>
+              <th>Tenant</th>
               <th>Severity</th>
               <th>Prediction</th>
               <th>Attack Type</th>
-              <th>Evidence</th>
+              <th>Stage</th>
+              <th>Timestamp</th>
+              <th>Evidence Summary</th>
             </tr>
           </thead>
-          <tbody>{body}</tbody>
+          <tbody id="alerts-body">{body}</tbody>
         </table>
+        <script>
+          const tenantId = {tenant_json};
+          const statusEl = document.getElementById("live-status");
+          const lastUpdatedEl = document.getElementById("last-updated");
+          const tbody = document.getElementById("alerts-body");
+
+          function summarizeEvidence(alert) {{
+            const evidence = alert.evidence || {{}};
+            if (typeof evidence !== "object" || Array.isArray(evidence)) {{
+              return String(evidence || "");
+            }}
+            const keys = [
+              "original_pcap_path",
+              "matched_flow_csv_path",
+              "evidence_source",
+              "attack_label_count",
+              "attack_prediction_count",
+              "total_rows_sampled",
+              "ids_artifacts_dir"
+            ];
+            const summary = {{}};
+            for (const key of keys) {{
+              if (evidence[key] !== undefined && evidence[key] !== null && evidence[key] !== "") {{
+                summary[key] = evidence[key];
+              }}
+            }}
+            return JSON.stringify(summary);
+          }}
+
+          function addCell(row, value, useCode) {{
+            const cell = document.createElement("td");
+            if (useCode) {{
+              const code = document.createElement("code");
+              code.textContent = value || "";
+              cell.appendChild(code);
+            }} else {{
+              cell.textContent = value || "";
+            }}
+            row.appendChild(cell);
+          }}
+
+          function appendAlert(alert) {{
+            if (tbody.children.length === 1 && tbody.children[0].children.length === 1) {{
+              tbody.innerHTML = "";
+            }}
+            const row = document.createElement("tr");
+            addCell(row, alert.alert_id);
+            addCell(row, alert.tenant_id || tenantId);
+            addCell(row, alert.severity);
+            addCell(row, alert.prediction);
+            addCell(row, alert.attack_type);
+            addCell(row, alert.stage);
+            addCell(row, alert.timestamp);
+            addCell(row, summarizeEvidence(alert), true);
+            tbody.appendChild(row);
+            lastUpdatedEl.textContent = new Date().toLocaleTimeString();
+          }}
+
+          const events = new EventSource(`/alerts/${{encodeURIComponent(tenantId)}}/stream`);
+          events.addEventListener("status", () => {{
+            statusEl.textContent = "Live connected";
+            statusEl.className = "status connected";
+          }});
+          events.addEventListener("alert", (event) => {{
+            statusEl.textContent = "Live connected";
+            statusEl.className = "status connected";
+            appendAlert(JSON.parse(event.data));
+          }});
+          events.onerror = () => {{
+            statusEl.textContent = "Live disconnected; refresh manually.";
+            statusEl.className = "status disconnected";
+          }};
+        </script>
       </body>
     </html>
     """
