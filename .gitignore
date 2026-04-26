@@ -52,3 +52,8 @@ data/pcap/**/*
 # Local cached/sample data can be large; keep it out of Git unless a tiny
 # fixture is intentionally added with a more specific negation rule.
 data/samples/*.csv
+!data/samples/
+!data/samples/pcap/
+!data/samples/csv/
+!data/samples/pcap/*.pcap
+!data/samples/csv/*.csv

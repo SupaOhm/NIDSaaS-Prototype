@@ -14,10 +14,19 @@ The scripts are grouped by purpose so the demo workflow stays transparent.
 Real CIC PCAP upload:
 
 ```bash
-./scripts/test/create_cic_pcap_samples.sh
-./scripts/test/pcap_upload.sh -d data/samples/pcap/cic_attack_sample.pcap -t tenant_A
-./scripts/test/pcap_upload.sh -d data/samples/pcap/cic_attack_sample.pcap -t tenant_B
+./scripts/test/create_cic_demo_dataset.sh
+./scripts/test/pcap_upload.sh -d data/samples/pcap/cic_ddos_sample.pcap -t tenant_A
+./scripts/test/pcap_upload.sh -d data/samples/pcap/cic_portscan_sample.pcap -t tenant_B
 ```
+
+`create_cic_demo_dataset.sh` extracts small demo samples from the original
+CIC-IDS2017 PCAP files and creates matching CICFlowMeter CSV samples under
+`data/samples/pcap/` and `data/samples/csv/`. The full CIC datasets stay under
+`data/pcap/` and `data/csv/`, which are excluded from Git.
+
+The category PCAP files are broad-day demo triggers rather than
+category-isolated captures. The matching CSV samples provide category-specific
+label evidence for inference.
 
 Open:
 

@@ -193,11 +193,21 @@ Terminal 3:
 ./scripts/demo/run_spark_processor.sh
 ```
 
-Create the two small PCAP samples once:
+Create the small real CIC-IDS2017 demo PCAP and CICFlowMeter CSV samples once:
 
 ```bash
-./scripts/test/create_cic_pcap_samples.sh
+./scripts/test/create_cic_demo_dataset.sh
 ```
+
+The generated files under `data/samples/pcap/` and `data/samples/csv/` are
+curated demo extracts from the original CIC-IDS2017 PCAP/CSV files. Full
+datasets under `data/pcap/` and `data/csv/` remain local-only and excluded
+from Git.
+
+The category PCAP files are broad-day demo triggers, not category-isolated
+captures. For example, DDoS and PortScan demo PCAPs can both be extracted from
+`Friday-WorkingHours.pcap`. The matching CSV samples provide the deterministic
+category label evidence used by the demo inference adapter.
 
 Terminal 1:
 
@@ -221,6 +231,15 @@ Terminal 4:
 
 ```bash
 ./scripts/test/pcap_upload.sh -d data/samples/pcap/cic_attack_sample.pcap -t tenant_A
+```
+
+Category-specific samples are also supported:
+
+```bash
+./scripts/test/pcap_upload.sh -d data/samples/pcap/cic_ddos_sample.pcap -t tenant_A
+./scripts/test/pcap_upload.sh -d data/samples/pcap/cic_portscan_sample.pcap -t tenant_A
+./scripts/test/pcap_upload.sh -d data/samples/pcap/cic_webattack_sample.pcap -t tenant_A
+./scripts/test/pcap_upload.sh -d data/samples/pcap/cic_benign_sample.pcap -t tenant_A
 ```
 
 View webhook UI:

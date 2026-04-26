@@ -22,6 +22,29 @@ ATTACK_NAME_HINTS = (
     "heartbleed",
 )
 
+SAMPLE_PCAP_CSV_MAP = {
+    "cic_benign_sample.pcap": (
+        "cic_benign_sample.csv",
+        "Monday-WorkingHours.pcap_ISCX.csv",
+    ),
+    "cic_ddos_sample.pcap": (
+        "cic_ddos_sample.csv",
+        "Friday-WorkingHours-Afternoon-DDos.pcap_ISCX.csv",
+    ),
+    "cic_portscan_sample.pcap": (
+        "cic_portscan_sample.csv",
+        "Friday-WorkingHours-Afternoon-PortScan.pcap_ISCX.csv",
+    ),
+    "cic_webattack_sample.pcap": (
+        "cic_webattack_sample.csv",
+        "Thursday-WorkingHours-Morning-WebAttacks.pcap_ISCX.csv",
+    ),
+    "cic_infiltration_sample.pcap": (
+        "cic_infiltration_sample.csv",
+        "Thursday-WorkingHours-Afternoon-Infilteration.pcap_ISCX.csv",
+    ),
+}
+
 
 def _normalize_name(value: str) -> str:
     return (
@@ -95,6 +118,22 @@ def _generic_sample_match(pcap_name: str, root: Path) -> tuple[Path, str] | None
     return None
 
 
+def _sample_csv_match(pcap_name: str, full_csv_root: Path) -> tuple[Path, str] | None:
+    normalized = re.sub(r"^[0-9a-fA-F]{12}_", "", pcap_name)
+    csv_names = SAMPLE_PCAP_CSV_MAP.get(normalized)
+    if csv_names is None:
+        return None
+
+    sample_csv = Path("data/samples/csv") / csv_names[0]
+    if sample_csv.exists():
+        return sample_csv, "demo sample PCAP mapped to matching sample CSV"
+
+    fallback_csv = full_csv_root / csv_names[1]
+    if fallback_csv.exists():
+        return fallback_csv, "demo sample PCAP mapped to exact full CICFlowMeter CSV fallback"
+    return None
+
+
 def resolve_pcap_to_flow_csv(
     pcap_path: str,
     csv_root: str = "data/csv/csv_CIC_IDS2017",
@@ -120,6 +159,16 @@ def resolve_pcap_to_flow_csv(
             "pcap_path": pcap_path,
             "flow_csv_path": "",
             "reason": "empty PCAP basename",
+        }
+
+    sample_match = _sample_csv_match(pcap_name, root)
+    if sample_match is not None:
+        csv_path, reason = sample_match
+        return {
+            "status": "matched",
+            "pcap_path": pcap_path,
+            "flow_csv_path": str(csv_path),
+            "reason": reason,
         }
 
     if not root.exists():
