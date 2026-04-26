@@ -230,6 +230,47 @@ Expected result:
 - The test script posts a fake alert to `tenant_A`.
 - The webhook receiver stores the alert in memory and shows it at `http://localhost:9001/alerts/tenant_A/view`.
 
+## Full Demo Processor Flow
+
+Prototype step 5 adds `services/demo_processor/`, a fast Kafka consumer that turns upload events into demo detection results and dispatches attack alerts to the webhook receiver. This path does not require Spark and does not run the offline IDS cascade.
+
+Terminal 1:
+
+```bash
+./scripts/start_kafka.sh
+```
+
+Terminal 2:
+
+```bash
+./scripts/run_gateway.sh
+```
+
+Terminal 3:
+
+```bash
+./scripts/run_webhook_receiver.sh
+```
+
+Terminal 4:
+
+```bash
+DEMO_FORCE_ATTACK=1 ./scripts/run_demo_processor.sh
+```
+
+Terminal 5:
+
+```bash
+./scripts/test_full_demo_alert.sh
+```
+
+Expected result:
+
+- Gateway publishes the upload event to `raw.tenant.tenant_A`.
+- The demo processor logs `[PROCESSOR] received upload event` and `[PROCESSOR] prediction=attack`.
+- The dispatcher logs `[ALERT] dispatched to http://localhost:9001/webhook/tenant_A`.
+- The alert appears at `http://localhost:9001/alerts/tenant_A/view`.
+
 ## Planned Streaming Prototype
 
 The planned NIDSaaS streaming flow is:
