@@ -38,7 +38,10 @@ services:
       KAFKA_CLUSTERS_0_ZOOKEEPER: zookeeper:2181
 
   spark:
-    image: apache/spark:3.5.1
+    build:
+      context: .
+      dockerfile: docker/spark/Dockerfile
+    image: nidsaas-spark:3.5.1-tshark
     container_name: nidsaas_spark
     depends_on:
       - kafka
