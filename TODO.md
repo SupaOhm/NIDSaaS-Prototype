@@ -9,6 +9,7 @@
 - Docker Spark Structured Streaming reader for upload events.
 - Offline IDS audit and thin adapter wrapper.
 - Webhook receiver and fake alert delivery demo.
+- Fast demo startup scripts for infrastructure, local services, status, and shutdown.
 
 ## Next Milestones
 

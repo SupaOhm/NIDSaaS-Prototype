@@ -234,6 +234,24 @@ Expected result:
 
 Prototype step 5 adds `services/demo_processor/`, a fast Kafka consumer that turns upload events into demo detection results and dispatches attack alerts to the webhook receiver. This path does not require Spark and does not run the offline IDS cascade.
 
+Fast presentation startup:
+
+```bash
+./scripts/start_infra.sh
+./scripts/start_demo_services.sh
+./scripts/test_full_demo_alert.sh
+```
+
+Status and shutdown:
+
+```bash
+./scripts/demo_status.sh
+./scripts/stop_demo_services.sh
+./scripts/stop_kafka.sh
+```
+
+`start_infra.sh` starts Docker infrastructure. `start_demo_services.sh` starts the local Python services in the background and writes logs to `logs/` and PID files to `.pids/`.
+
 Terminal 1:
 
 ```bash
