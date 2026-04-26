@@ -59,6 +59,13 @@ result = run_demo_ids_inference(
     extraction_metadata=extraction,
 )
 evidence = result.get("evidence", {})
+expected_prediction = None
+pcap_name = Path(pcap_path).name
+if pcap_name == "cic_benign_sample.pcap":
+    expected_prediction = "benign"
+elif pcap_name in {"cic_attack_sample.pcap", "cic_highrate_sample.pcap"}:
+    expected_prediction = "attack"
+
 print(json.dumps({
     "prediction": result.get("prediction"),
     "severity": result.get("severity"),
@@ -67,6 +74,8 @@ print(json.dumps({
     "number_of_flows": evidence.get("number_of_flows"),
     "detection_reason": evidence.get("detection_reason"),
     "evidence_source": evidence.get("evidence_source"),
+    "thresholds": evidence.get("live_flow_rule_evidence", {}).get("thresholds"),
+    "observed": evidence.get("live_flow_rule_evidence", {}).get("observed"),
 }, indent=2))
 
 if extraction.get("status") != "success":
@@ -79,4 +88,8 @@ if evidence.get("evidence_source") != "live_extracted_flow_rules":
     raise SystemExit("[TEST] expected live_extracted_flow_rules evidence")
 if result.get("prediction") not in {"attack", "benign"}:
     raise SystemExit("[TEST] invalid prediction")
+if expected_prediction and result.get("prediction") != expected_prediction:
+    raise SystemExit(
+        f"[TEST] expected {expected_prediction} for {pcap_name}, got {result.get('prediction')}"
+    )
 PY

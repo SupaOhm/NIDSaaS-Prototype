@@ -14,24 +14,26 @@ The scripts are grouped by purpose so the demo workflow stays transparent.
 Real CIC PCAP upload:
 
 ```bash
-./scripts/test/create_cic_demo_dataset.sh
-./scripts/test/pcap_upload.sh -d data/samples/pcap/cic_ddos_sample.pcap -t tenant_A
-./scripts/test/pcap_upload.sh -d data/samples/pcap/cic_portscan_sample.pcap -t tenant_B
+./scripts/test/mine_live_cic_attack_windows.sh
+./scripts/test/pcap_upload.sh -d data/samples/pcap/cic_highrate_sample.pcap -t tenant_A
+./scripts/test/pcap_upload.sh -d data/samples/pcap/cic_benign_sample.pcap -t tenant_B
 ```
 
-`create_cic_demo_dataset.sh` extracts small demo samples from the original
-CIC-IDS2017 PCAP files and creates matching CICFlowMeter CSV samples under
-`data/samples/pcap/` and `data/samples/csv/`. The full CIC datasets stay under
-`data/pcap/` and `data/csv/`, which are excluded from Git.
+`mine_live_cic_attack_windows.sh` searches real CIC-IDS2017 PCAP files by
+packet window and saves only windows whose live extracted flows classify as
+attack. CSV labels are not used as the primary selector. If a category cannot
+be found from locally available PCAPs, the script reports it as unavailable.
+The full CIC datasets stay under `data/pcap/` and `data/csv/`, which are
+excluded from Git.
 
-The category PCAP files are broad-day demo triggers rather than
-category-isolated captures. The matching CSV samples provide category-specific
-label evidence for inference.
+For live PCAP classification in Spark, the priority is:
+1. Resolve to a matching CICFlowMeter CSV and run the saved RF artifact.
+2. Fall back to live `tshark` flow extraction and live flow rules when no
+   matching CSV exists.
 
-For live PCAP classification, Spark extracts flows from the uploaded PCAP before
-calling inference. Set `CICFLOWMETER_CMD` or `CICFLOWMETER_JAR` to use
-CICFlowMeter; otherwise install `tshark` for the fallback extractor. Flow CSVs
-are written under `LIVE_FLOW_OUTPUT_DIR`, default `outputs/live_flows`.
+Set `CICFLOWMETER_CMD` or `CICFLOWMETER_JAR` to use CICFlowMeter; otherwise
+install `tshark` for the fallback extractor. Flow CSVs are written under
+`LIVE_FLOW_OUTPUT_DIR`, default `outputs/live_flows`.
 
 Open:
 
@@ -82,3 +84,18 @@ python scripts/offline/run_pipeline.py --help
 python scripts/offline/run_baseline.py --help
 python scripts/offline/run_snort.py --help
 ```
+
+## RF Artifact CSV Inference (Inference-Only)
+
+Use the saved RF artifact (`outputs/offline_adapter_test/rf_anomaly.joblib`) directly on
+CICFlowMeter-compatible flow CSV files without retraining:
+
+```bash
+python3 scripts/test/test_rf_inference_csv.py data/samples/csv/cic_benign_sample.csv
+python3 scripts/test/test_rf_inference_csv.py data/samples/csv/cic_ddos_sample.csv
+```
+
+Notes:
+- This path is inference-only and does not call `fit()`.
+- Input must be CICFlowMeter-compatible schema (80 required RF features).
+- tshark fallback flow CSV output is not compatible with this RF artifact.

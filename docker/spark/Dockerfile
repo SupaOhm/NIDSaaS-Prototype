@@ -7,8 +7,16 @@ ENV SPARK_KAFKA_PACKAGE=org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.1
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         ca-certificates \
+        python3-pip \
         tshark \
     && rm -rf /var/lib/apt/lists/*
+
+RUN python3 -m pip install --no-cache-dir \
+        joblib \
+        numpy \
+        pandas \
+        scipy \
+        scikit-learn
 
 RUN mkdir -p /tmp/.ivy2 \
     && printf '%s\n' \

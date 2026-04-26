@@ -307,8 +307,17 @@ def _read_live_flow_rule_evidence(path: str) -> dict[str, Any]:
     unique_dst_ports: set[str] = set()
     max_packets_per_sec = 0.0
     max_bytes_per_sec = 0.0
+    high_rate_flow_count = 0
     total_packets = 0.0
     total_bytes = 0.0
+    thresholds = {
+        "sustained_min_packets": 100,
+        "sustained_min_duration_sec": 1.0,
+        "high_rate_packets_per_sec": 500.0,
+        "high_rate_bytes_per_sec": 500_000.0,
+        "portscan_min_dst_ports": 100,
+        "portscan_min_syn_count": 500,
+    }
 
     try:
         with flow_path.open("r", encoding="utf-8", newline="") as handle:
@@ -321,9 +330,21 @@ def _read_live_flow_rule_evidence(path: str) -> dict[str, Any]:
                 total_syn += _numeric(row, "syn_count")
                 total_packets += _numeric(row, "packet_count")
                 total_bytes += _numeric(row, "byte_count")
-                if _numeric(row, "packet_count") >= 10 and _numeric(row, "duration_sec") >= 0.1:
-                    max_packets_per_sec = max(max_packets_per_sec, _numeric(row, "packets_per_sec"))
-                    max_bytes_per_sec = max(max_bytes_per_sec, _numeric(row, "bytes_per_sec"))
+                packet_count = _numeric(row, "packet_count")
+                duration_sec = _numeric(row, "duration_sec")
+                packets_per_sec = _numeric(row, "packets_per_sec")
+                bytes_per_sec = _numeric(row, "bytes_per_sec")
+                if (
+                    packet_count >= thresholds["sustained_min_packets"]
+                    and duration_sec >= thresholds["sustained_min_duration_sec"]
+                ):
+                    max_packets_per_sec = max(max_packets_per_sec, packets_per_sec)
+                    max_bytes_per_sec = max(max_bytes_per_sec, bytes_per_sec)
+                    if (
+                        packets_per_sec >= thresholds["high_rate_packets_per_sec"]
+                        and bytes_per_sec >= thresholds["high_rate_bytes_per_sec"]
+                    ):
+                        high_rate_flow_count += 1
     except Exception as exc:
         return {
             "status": "not_available",
@@ -334,22 +355,42 @@ def _read_live_flow_rule_evidence(path: str) -> dict[str, Any]:
 
     reasons: list[str] = []
     attack_type = "BENIGN"
-    if len(unique_dst_ports) >= 25 and total_syn >= 25:
+    observed = {
+        "number_of_flows": number_of_flows,
+        "unique_dst_ports": len(unique_dst_ports),
+        "total_syn_count": int(total_syn),
+        "total_packets": int(total_packets),
+        "total_bytes": int(total_bytes),
+        "max_sustained_packets_per_sec": max_packets_per_sec,
+        "max_sustained_bytes_per_sec": max_bytes_per_sec,
+        "high_rate_flow_count": high_rate_flow_count,
+    }
+    if high_rate_flow_count > 0:
+        attack_type = "HighRateFlow"
+        reasons.append(
+            f"sustained high-rate flow: max_packets_per_sec={max_packets_per_sec:.2f}, "
+            f"max_bytes_per_sec={max_bytes_per_sec:.2f}"
+        )
+    if (
+        len(unique_dst_ports) >= thresholds["portscan_min_dst_ports"]
+        and total_syn >= thresholds["portscan_min_syn_count"]
+    ):
         attack_type = "PortScanLike"
         reasons.append(
-            f"many destination ports with SYN activity: dst_ports={len(unique_dst_ports)}, syn_count={int(total_syn)}"
-        )
-    if total_syn >= 100:
-        attack_type = "SynFloodLike" if attack_type == "BENIGN" else attack_type
-        reasons.append(f"high SYN volume: syn_count={int(total_syn)}")
-    if max_packets_per_sec >= 1000 or max_bytes_per_sec >= 1_000_000:
-        attack_type = "HighRateFlow" if attack_type == "BENIGN" else attack_type
-        reasons.append(
-            f"abnormal flow rate: max_packets_per_sec={max_packets_per_sec:.2f}, "
-            f"max_bytes_per_sec={max_bytes_per_sec:.2f}"
+            f"extreme SYN-backed port spread: dst_ports={len(unique_dst_ports)}, "
+            f"syn_count={int(total_syn)}"
         )
 
     prediction = "attack" if reasons else "benign"
+    benign_reason = (
+        "no live flow rule threshold exceeded: "
+        f"max_sustained_packets_per_sec={max_packets_per_sec:.2f} "
+        f"< {thresholds['high_rate_packets_per_sec']:.2f} or "
+        f"max_sustained_bytes_per_sec={max_bytes_per_sec:.2f} "
+        f"< {thresholds['high_rate_bytes_per_sec']:.2f}; "
+        f"dst_ports={len(unique_dst_ports)} and syn_count={int(total_syn)} "
+        "do not meet extreme portscan thresholds"
+    )
     return {
         "status": "success",
         "prediction": prediction,
@@ -362,7 +403,10 @@ def _read_live_flow_rule_evidence(path: str) -> dict[str, Any]:
         "total_bytes": int(total_bytes),
         "max_packets_per_sec": max_packets_per_sec,
         "max_bytes_per_sec": max_bytes_per_sec,
-        "detection_reason": "; ".join(reasons) if reasons else "no live flow rule threshold exceeded",
+        "high_rate_flow_count": high_rate_flow_count,
+        "thresholds": thresholds,
+        "observed": observed,
+        "detection_reason": "; ".join(reasons) if reasons else benign_reason,
     }
 
 

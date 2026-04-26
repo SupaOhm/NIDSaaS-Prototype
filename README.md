@@ -171,9 +171,9 @@ Prototype step 3 adds a PySpark Structured Streaming reader under `services/spar
 
 Kafka and Spark run in Docker Compose. The gateway still runs locally in the Python virtualenv and publishes to Kafka at `localhost:9092`; Spark reads the same broker from inside Docker at `kafka:29092`.
 
-The Spark job uses `src/nidsaas/detection/demo_inference_adapter.py`, which loads saved offline IDS outputs from `outputs/offline_adapter_test`. It does not retrain RF, conformal calibration, or the escalation gate during the live demo. For real CIC-IDS2017 PCAP uploads, the adapter uses `src/nidsaas/detection/pcap_flow_resolver.py` to map the uploaded PCAP to the corresponding pre-extracted CICFlowMeter CSV under `data/csv/csv_CIC_IDS2017`. If saved cascade predictions contain rows for that CSV via `source_file`, those prediction rows are preferred as IDS evidence; otherwise the adapter falls back to the matched CSV `Label` column and marks the evidence source as `matched_cic_flow_csv_label`.
+The Spark job now prefers saved RF inference when it can resolve the uploaded PCAP to a CICFlowMeter-compatible CSV through `src/nidsaas/detection/pcap_flow_resolver.py`. If a matching CSV exists, `src/nidsaas/detection/rf_inference_adapter.py` scores it directly with the saved artifact in `outputs/offline_adapter_test/rf_anomaly.joblib`. If no matching CICFlowMeter CSV exists, Spark falls back to live `tshark` flow extraction plus the live rule path in `src/nidsaas/detection/demo_inference_adapter.py`. None of these paths retrain the models during the live demo.
 
-Live PCAP-to-flow extraction is not implemented in the runtime path yet. The current demo uses real PCAP upload as the trigger, existing CICFlowMeter CSVs as flow evidence, and existing IDS artifacts/outputs as model evidence.
+Live PCAP-to-flow extraction remains available as the fallback runtime path. Configure `CICFLOWMETER_CMD` or `CICFLOWMETER_JAR` to use CICFlowMeter, or install `tshark` for the built-in flow-like fallback extractor. When a matching CICFlowMeter CSV exists, Spark uses the saved RF artifact first and only falls back to live `tshark` flow rules when no matching CSV is found.
 
 Terminal 1:
 
@@ -193,28 +193,26 @@ Terminal 3:
 ./scripts/demo/run_spark_processor.sh
 ```
 
-Create the small real CIC-IDS2017 demo PCAP and CICFlowMeter CSV samples once:
+Mine small real CIC-IDS2017 demo PCAP windows once:
 
 ```bash
-./scripts/test/create_cic_demo_dataset.sh
+./scripts/test/mine_live_cic_attack_windows.sh
 ```
 
-The generated files under `data/samples/pcap/` and `data/samples/csv/` are
-curated demo extracts from the original CIC-IDS2017 PCAP/CSV files. Full
-datasets under `data/pcap/` and `data/csv/` remain local-only and excluded
-from Git.
+The generated files under `data/samples/pcap/` are mined from real
+CIC-IDS2017 PCAP packet windows. Candidate windows are selected only when live
+flow extraction and live classification detect attack behavior; CSV labels are
+not used as the primary selector. If a specific attack type is not found in the
+available local PCAPs, the mining script prints it as unavailable. Full datasets
+under `data/pcap/` and `data/csv/` remain local-only and excluded from Git.
 
-The category PCAP files are broad-day demo triggers, not category-isolated
-captures. For example, DDoS and PortScan demo PCAPs can both be extracted from
-`Friday-WorkingHours.pcap`. The matching CSV samples provide the deterministic
-category label evidence used by the demo inference adapter.
-
-Live PCAP-to-flow extraction is available in the Spark processor. Configure
-`CICFLOWMETER_CMD` or `CICFLOWMETER_JAR` to use CICFlowMeter, or install
-`tshark` for the built-in flow-like fallback extractor. Extracted flow CSVs are
-written to `LIVE_FLOW_OUTPUT_DIR`, default `outputs/live_flows`, and are used as
-primary demo classification evidence. The older PCAP-to-CIC CSV resolver remains
-a labeled fallback path when no live extracted flow CSV is supplied.
+Live PCAP-to-flow extraction remains available in the Spark processor as the
+fallback path. Configure `CICFLOWMETER_CMD` or `CICFLOWMETER_JAR` to use
+CICFlowMeter, or install `tshark` for the built-in flow-like fallback
+extractor. When a matching CICFlowMeter CSV exists, Spark uses the saved RF
+artifact first and only falls back to live `tshark` flow rules when no matching
+CSV is found. Extracted flow CSVs are written to `LIVE_FLOW_OUTPUT_DIR`,
+default `outputs/live_flows`.
 
 Terminal 1:
 

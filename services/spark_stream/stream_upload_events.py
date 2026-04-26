@@ -20,7 +20,9 @@ for path in (PROJECT_ROOT, SRC_DIR):
         sys.path.insert(0, str(path))
 
 from nidsaas.detection.demo_inference_adapter import run_demo_ids_inference
+from nidsaas.detection.pcap_flow_resolver import resolve_pcap_to_flow_csv
 from nidsaas.detection.live_flow_extractor import extract_flows_from_pcap
+from nidsaas.detection.rf_inference_adapter import run_rf_inference_on_flow_csv
 from services.alert_dispatcher.dispatcher import dispatch_alert
 
 
@@ -85,7 +87,17 @@ def _build_alert(row, ids_result: dict, webhook_base_url: str) -> tuple[dict, st
     tenant_id = row["tenant_id"] or "unknown_tenant"
     file_path = row["file_path"] or ""
     file_name = Path(file_path).name
-    evidence = ids_result.get("evidence", {})
+    evidence = dict(ids_result.get("evidence", {}))
+    evidence.update(
+        {
+            "file_path": file_path,
+            "file_name": file_name,
+            "kafka_topic": row["topic"],
+            "kafka_offset": row["offset"],
+            "batch_hash": row["batch_hash"],
+            "gateway_decision": row["decision"],
+        }
+    )
     alert = {
         "alert_id": f"spark-{int(datetime.now().timestamp())}-{uuid.uuid4().hex[:8]}",
         "tenant_id": tenant_id,
@@ -95,27 +107,7 @@ def _build_alert(row, ids_result: dict, webhook_base_url: str) -> tuple[dict, st
         "attack_type": ids_result.get("attack_type", "HybridCascadeDemo"),
         "stage": ids_result.get("stage", "spark_real_ids_artifact_demo"),
         "evidence": {
-            "original_pcap_path": evidence.get("original_pcap_path", file_path),
-            "extracted_flow_csv_path": evidence.get("extracted_flow_csv_path"),
-            "number_of_flows": evidence.get("number_of_flows"),
-            "detection_reason": evidence.get("detection_reason"),
-            "matched_flow_csv_path": evidence.get("matched_flow_csv_path"),
-            "evidence_source": evidence.get("evidence_source"),
-            "attack_label_count": evidence.get("attack_label_count"),
-            "attack_rows_sampled": evidence.get("attack_rows_sampled"),
-            "attack_prediction_count": evidence.get("attack_prediction_count"),
-            "total_rows_sampled": evidence.get("total_rows_sampled"),
-            "ids_artifacts_summary": evidence.get("ids_artifacts_summary"),
-            "file_path": file_path,
-            "file_name": file_name,
-            "kafka_topic": row["topic"],
-            "kafka_offset": row["offset"],
-            "batch_hash": row["batch_hash"],
-            "gateway_decision": row["decision"],
-            "ids_artifacts_dir": evidence.get("ids_artifacts_dir") or evidence.get("artifacts_dir"),
-            "ids_metrics_summary": evidence.get("metrics_used"),
-            "ids_sample_row_id": evidence.get("sample_row_id"),
-            "note": evidence.get("note", "uses precomputed trained IDS artifacts; no retraining"),
+            **evidence,
         },
         "timestamp": _utc_now(),
     }
@@ -133,6 +125,8 @@ def print_batch(batch_df: DataFrame, batch_id: int) -> None:
     live_flow_output_dir = os.getenv("LIVE_FLOW_OUTPUT_DIR", "outputs/live_flows")
     webhook_base_url = os.getenv("WEBHOOK_BASE_URL", "http://host.docker.internal:9001")
     result_rows = []
+    rf_artifact_path = os.getenv("RF_ARTIFACT_PATH", "outputs/offline_adapter_test/rf_anomaly.joblib")
+    rf_file_attack_ratio_threshold = float(os.getenv("RF_FILE_ATTACK_RATIO_THRESHOLD", "0.20"))
 
     selected = batch_df.select(
         "tenant_id",
@@ -154,30 +148,77 @@ def print_batch(batch_df: DataFrame, batch_id: int) -> None:
             f"gateway_decision={row['decision']}",
             flush=True,
         )
-        print("[SPARK] extracting live flows from uploaded PCAP", flush=True)
-        extraction_metadata = extract_flows_from_pcap(
-            file_path,
-            output_dir=live_flow_output_dir,
-        )
-        extracted_flow_csv_path = str(extraction_metadata.get("extracted_flow_csv_path", ""))
-        print(f"[SPARK] extracted flow CSV: {extracted_flow_csv_path}", flush=True)
-        print(f"[SPARK] number_of_flows={extraction_metadata.get('number_of_flows', 0)}", flush=True)
-        print("[SPARK] calling IDS demo inference adapter", flush=True)
-        ids_result = run_demo_ids_inference(
-            tenant_id=row["tenant_id"] or "unknown_tenant",
-            source_id=row["source_id"] or "unknown_source",
-            file_path=file_path,
-            artifacts_dir=artifacts_dir,
-            csv_root=csv_root,
-            extracted_flow_csv_path=extracted_flow_csv_path,
-            extraction_metadata=extraction_metadata,
-        )
+        print("[SPARK] resolving PCAP to CICFlowMeter CSV", flush=True)
+        resolver_result = resolve_pcap_to_flow_csv(file_path, csv_root=csv_root)
+        matched_flow_csv_path = str(resolver_result.get("flow_csv_path", "") or "")
+
+        if matched_flow_csv_path and Path(matched_flow_csv_path).exists():
+            print(f"[SPARK] using saved RF inference adapter: {matched_flow_csv_path}", flush=True)
+            ids_result = run_rf_inference_on_flow_csv(
+                flow_csv_path=matched_flow_csv_path,
+                artifact_path=rf_artifact_path,
+                file_attack_ratio_threshold=rf_file_attack_ratio_threshold,
+            )
+            print(
+                f"[SPARK] RF attack_ratio={float(ids_result.get('attack_ratio', 0.0)):.4f}, "
+                f"rows_scored={ids_result.get('rows_scored', 0)}, "
+                f"prediction={ids_result.get('prediction', 'benign')}",
+                flush=True,
+            )
+            evidence = {
+                "original_pcap_path": file_path,
+                "matched_flow_csv_path": matched_flow_csv_path,
+                "evidence_source": "saved_rf_artifact_inference",
+                "rf_attack_ratio": ids_result.get("attack_ratio", 0.0),
+                "rf_file_attack_ratio_threshold": ids_result.get(
+                    "file_attack_ratio_threshold",
+                    rf_file_attack_ratio_threshold,
+                ),
+                "rf_row_threshold": ids_result.get("row_threshold", 0.0),
+                "rf_row_attack_count": ids_result.get("row_attack_count", 0),
+                "rf_row_benign_count": ids_result.get("row_benign_count", 0),
+                "rows_scored": ids_result.get("rows_scored", 0),
+                "rf_artifact_path": rf_artifact_path,
+                "note": "saved RF inference on CICFlowMeter-compatible CSV; no retraining",
+            }
+            ids_result = {
+                "status": ids_result.get("status", "success"),
+                "prediction": ids_result.get("prediction", "benign"),
+                "severity": ids_result.get("severity", "info"),
+                "attack_type": "RFArtifactAttack" if ids_result.get("prediction") == "attack" else "BENIGN",
+                "stage": "spark_saved_rf_artifact_demo",
+                "evidence": evidence,
+            }
+        else:
+            print("[SPARK] no matching CICFlowMeter CSV found; falling back to live tshark flow rules", flush=True)
+            print("[SPARK] extracting live flows from uploaded PCAP", flush=True)
+            extraction_metadata = extract_flows_from_pcap(
+                file_path,
+                output_dir=live_flow_output_dir,
+            )
+            extracted_flow_csv_path = str(extraction_metadata.get("extracted_flow_csv_path", ""))
+            print(f"[SPARK] extracted flow CSV: {extracted_flow_csv_path}", flush=True)
+            print(f"[SPARK] number_of_flows={extraction_metadata.get('number_of_flows', 0)}", flush=True)
+            print("[SPARK] calling IDS demo inference adapter", flush=True)
+            ids_result = run_demo_ids_inference(
+                tenant_id=row["tenant_id"] or "unknown_tenant",
+                source_id=row["source_id"] or "unknown_source",
+                file_path=file_path,
+                artifacts_dir=artifacts_dir,
+                csv_root=csv_root,
+                extracted_flow_csv_path=extracted_flow_csv_path,
+                extraction_metadata=extraction_metadata,
+            )
+            ids_result["evidence"]["note"] = (
+                "live tshark flow-rule fallback; RF requires CICFlowMeter-compatible features"
+            )
         prediction = ids_result.get("prediction", "benign")
         severity = ids_result.get("severity", "info")
         stage = ids_result.get("stage", "spark_real_ids_artifact_demo")
         evidence = ids_result.get("evidence", {})
         print(f"[SPARK] received PCAP: {evidence.get('original_pcap_path', file_path)}", flush=True)
         print(f"[SPARK] extracted flow CSV: {evidence.get('extracted_flow_csv_path', '')}", flush=True)
+        print(f"[SPARK] matched flow CSV: {evidence.get('matched_flow_csv_path', '')}", flush=True)
         print(f"[SPARK] detection_reason: {evidence.get('detection_reason', '')}", flush=True)
         print(f"[SPARK] evidence_source: {evidence.get('evidence_source', '')}", flush=True)
         print(f"[SPARK] prediction={prediction}", flush=True)
@@ -223,6 +264,8 @@ def main() -> None:
     topic_pattern = os.getenv("KAFKA_TOPIC_PATTERN", "raw.tenant.*")
     spark_master = os.getenv("SPARK_MASTER", "local[*]")
     artifacts_dir = os.getenv("IDS_ARTIFACTS_DIR", "outputs/offline_adapter_test")
+    rf_artifact_path = os.getenv("RF_ARTIFACT_PATH", "outputs/offline_adapter_test/rf_anomaly.joblib")
+    rf_file_attack_ratio_threshold = float(os.getenv("RF_FILE_ATTACK_RATIO_THRESHOLD", "0.20"))
     csv_root = os.getenv("CIC_FLOW_CSV_ROOT", "data/csv/csv_CIC_IDS2017")
     webhook_base_url = os.getenv("WEBHOOK_BASE_URL", "http://host.docker.internal:9001")
 
@@ -238,6 +281,8 @@ def main() -> None:
     print(f"[SPARK] topic pattern: {topic_pattern}", flush=True)
     print(f"[SPARK] master: {spark_master}", flush=True)
     print(f"[SPARK] IDS artifacts dir: {artifacts_dir}", flush=True)
+    print(f"[SPARK] RF artifact path: {rf_artifact_path}", flush=True)
+    print(f"[SPARK] RF file attack ratio threshold: {rf_file_attack_ratio_threshold}", flush=True)
     print(f"[SPARK] CIC flow CSV root: {csv_root}", flush=True)
     print(f"[SPARK] live flow output dir: {os.getenv('LIVE_FLOW_OUTPUT_DIR', 'outputs/live_flows')}", flush=True)
     print(f"[SPARK] webhook base URL: {webhook_base_url}", flush=True)
