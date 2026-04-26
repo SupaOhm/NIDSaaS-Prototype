@@ -103,6 +103,12 @@ Manual duplicate test:
 ./scripts/test/test_duplicate_upload.sh
 ```
 
+Clear in-memory dedupe state between repeated demos:
+
+```bash
+./scripts/test/clear_dedupe_memory.sh
+```
+
 Expected duplicate behavior:
 
 - First unique batch returns `decision="forward"` and is published to Kafka or written to `outputs/gateway_events.jsonl` if Kafka is unavailable.

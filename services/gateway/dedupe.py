@@ -12,11 +12,17 @@ class BatchState:
     last_batch_hashes: set[str] = field(default_factory=set)
 
 
+@dataclass
+class SourceState:
+    seen_content_hashes: set[str] = field(default_factory=set)
+
+
 @dataclass(frozen=True)
 class DedupeDecision:
     decision: str
     effective_start_offset: int
     should_forward: bool
+    reason: str | None = None
 
 
 class BatchDeduper:
@@ -28,11 +34,17 @@ class BatchDeduper:
 
     def __init__(self) -> None:
         self._states: dict[str, BatchState] = {}
+        self._source_states: dict[tuple[str, str], SourceState] = {}
         self._lock = Lock()
 
     @staticmethod
     def make_key(tenant_id: str, source_id: str, file_epoch: str) -> str:
         return f"{tenant_id}:{source_id}:{file_epoch}"
+
+    def clear_state(self) -> None:
+        with self._lock:
+            self._states.clear()
+            self._source_states.clear()
 
     def evaluate(
         self,
@@ -43,9 +55,20 @@ class BatchDeduper:
         start_offset: int,
         end_offset: int,
         batch_hash: str,
+        content_hash: str,
     ) -> DedupeDecision:
         key = self.make_key(tenant_id, source_id, file_epoch)
+        source_key = (tenant_id, source_id)
         with self._lock:
+            source_state = self._source_states.setdefault(source_key, SourceState())
+            if content_hash in source_state.seen_content_hashes:
+                return DedupeDecision(
+                    decision="drop_duplicate",
+                    effective_start_offset=start_offset,
+                    should_forward=False,
+                    reason="content_hash_match",
+                )
+
             state = self._states.setdefault(key, BatchState())
             last_end = state.last_committed_end_offset
 
@@ -54,6 +77,7 @@ class BatchDeduper:
                     decision="drop_duplicate",
                     effective_start_offset=start_offset,
                     should_forward=False,
+                    reason="batch_hash_match",
                 )
 
             if end_offset <= last_end:
@@ -77,5 +101,6 @@ class BatchDeduper:
                 )
 
             state.last_batch_hashes.add(batch_hash)
+            source_state.seen_content_hashes.add(content_hash)
             state.last_committed_end_offset = max(last_end, end_offset)
             return decision

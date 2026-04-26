@@ -43,6 +43,19 @@ def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
+@app.post("/admin/clear-dedupe")
+def clear_dedupe(x_api_key: str = Header(...)) -> dict[str, str]:
+    if x_api_key != API_KEY:
+        raise HTTPException(status_code=401, detail="invalid api key")
+
+    deduper.clear_state()
+    print("[GATEWAY] cleared in-memory dedupe state", flush=True)
+    return {
+        "status": "cleared",
+        "message": "in-memory dedupe state cleared",
+    }
+
+
 @app.post("/upload-pcap")
 async def upload_pcap(
     tenant_id: str = Form(...),
@@ -64,7 +77,8 @@ async def upload_pcap(
     source_safe = _safe_part(source_id)
 
     payload = await file.read()
-    batch_hash = hashlib.sha256(payload).hexdigest()
+    content_hash = hashlib.sha256(payload).hexdigest()
+    batch_hash = content_hash
 
     dedupe_decision = deduper.evaluate(
         tenant_id=tenant_id,
@@ -73,6 +87,7 @@ async def upload_pcap(
         start_offset=start_offset,
         end_offset=end_offset,
         batch_hash=batch_hash,
+        content_hash=content_hash,
     )
 
     if not dedupe_decision.should_forward:
@@ -87,6 +102,8 @@ async def upload_pcap(
             "source_id": source_id,
             "file_epoch": file_epoch,
             "batch_hash": batch_hash,
+            "content_hash": content_hash,
+            "reason": dedupe_decision.reason,
             "published": False,
         }
 
@@ -105,6 +122,7 @@ async def upload_pcap(
         "effective_start_offset": dedupe_decision.effective_start_offset,
         "file_path": str(upload_path),
         "batch_hash": batch_hash,
+        "content_hash": content_hash,
         "decision": dedupe_decision.decision,
         "upload_time": datetime.now(timezone.utc).isoformat(),
     }
@@ -115,6 +133,8 @@ async def upload_pcap(
     return {
         "status": "accepted",
         "decision": dedupe_decision.decision,
+        "batch_hash": batch_hash,
+        "content_hash": content_hash,
         "topic": topic,
         "event": event,
         "published": published,
