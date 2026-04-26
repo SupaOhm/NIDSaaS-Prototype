@@ -1,13 +1,13 @@
 # Existing IDS Pipeline Audit
 
-This audit covers only the original offline IDS and Snort implementation under `src/nidsaas/detection/`, `src/nidsaas/snort/`, `scripts/run_pipeline.py`, `scripts/run_snort.py`, `scripts/run_baseline.py`, `requirements.txt`, and the default offline sample file `data/samples/signature_merged_predictions.csv`.
+This audit covers only the original offline IDS and Snort implementation under `src/nidsaas/detection/`, `src/nidsaas/snort/`, `scripts/offline/run_pipeline.py`, `scripts/offline/run_snort.py`, `scripts/offline/run_baseline.py`, `requirements.txt`, and the default offline sample file `data/samples/signature_merged_predictions.csv`.
 
 ## A. Current Offline Pipeline Entry Point
 
 Primary command:
 
 ```bash
-python scripts/run_pipeline.py \
+python scripts/offline/run_pipeline.py \
   --data-dir data/csv/csv_CIC_IDS2017 \
   --snort-predictions data/samples/signature_merged_predictions.csv \
   --output-dir outputs/proposed_locked_a20_g50 \
@@ -19,7 +19,7 @@ python scripts/run_pipeline.py \
 
 Entry point:
 
-- Script: `scripts/run_pipeline.py`
+- Script: `scripts/offline/run_pipeline.py`
 - Main function called: `nidsaas.detection.hybrid_cascade_splitcal_fastsnort.run_cascade`
 - Default data path: `data/csv/csv_CIC_IDS2017`
 - Default signature path: `data/samples/signature_merged_predictions.csv`
@@ -88,7 +88,7 @@ Snort helper path:
 - `src/nidsaas/snort/evaluator.py` matches filtered Snort alerts back to the CIC-IDS2017 test split using protocol, IPs, ports, inferred PCAP/day name, and optional timestamp windows. It outputs `snort_signature_predictions.csv`.
 - `src/nidsaas/detection/signature_rate_rules.py` can OR-merge Snort predictions with deterministic flow-level rate rules to produce the cascade-compatible `signature_merged_predictions.csv`.
 
-Bottom line: the main cascade consumes precomputed row-level signature predictions. Live Snort execution is available as a helper branch, not as part of `scripts/run_pipeline.py`.
+Bottom line: the main cascade consumes precomputed row-level signature predictions. Live Snort execution is available as a helper branch, not as part of `scripts/offline/run_pipeline.py`.
 
 ## D. Cleaning and Preprocessing
 
@@ -227,12 +227,12 @@ run_offline_ids_on_flow_csv(
 Implemented adapter:
 
 - Module: `src/nidsaas/detection/offline_adapter.py`
-- CLI: `scripts/run_offline_adapter.py`
+- CLI: `scripts/offline/run_offline_adapter.py`
 
 Adapter command:
 
 ```bash
-python scripts/run_offline_adapter.py \
+python scripts/offline/run_offline_adapter.py \
   --data-dir data/csv/csv_CIC_IDS2017 \
   --signature-predictions data/samples/signature_merged_predictions.csv \
   --output-dir outputs/offline_adapter \
@@ -256,5 +256,5 @@ Honest current-state summary:
 
 - Raw PCAP is not supported by the main offline IDS pipeline.
 - CICFlowMeter is external/assumed and not implemented here.
-- Snort execution exists as helper utilities but is not invoked by `scripts/run_pipeline.py`.
+- Snort execution exists as helper utilities but is not invoked by `scripts/offline/run_pipeline.py`.
 - The default cascade uses precomputed row-level signature predictions keyed by `row_id`.
