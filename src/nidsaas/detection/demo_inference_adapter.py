@@ -13,6 +13,7 @@ from __future__ import annotations
 import csv
 import json
 import os
+from collections import Counter
 from pathlib import Path
 from typing import Any
 
@@ -125,33 +126,47 @@ def _read_flow_label_evidence(path: str, max_rows: int = DEFAULT_MAX_EVIDENCE_RO
             "reason": f"matched flow CSV does not exist: {path}",
         }
 
-    attack_label_count = 0
-    total_rows_sampled = 0
-    attack_labels: set[str] = set()
-    try:
-        with csv_path.open("r", encoding="utf-8-sig", newline="") as fh:
+    def read_labels(encoding: str) -> tuple[int, int, Counter[str]]:
+        attack_count = 0
+        total_count = 0
+        labels: Counter[str] = Counter()
+        with csv_path.open("r", encoding=encoding, newline="") as fh:
             reader = csv.DictReader(fh)
             label_column = _find_column(reader.fieldnames, "Label")
             if not label_column:
-                return {
-                    "status": "not_available",
-                    "prediction": "benign",
-                    "attack_label_count": 0,
-                    "attack_rows_sampled": 0,
-                    "total_rows_sampled": 0,
-                    "attack_labels": [],
-                    "reason": "Label column not found",
-                }
+                raise ValueError("Label column not found")
 
             for row in reader:
-                if max_rows > 0 and total_rows_sampled >= max_rows:
+                if max_rows > 0 and total_count >= max_rows:
                     break
-                total_rows_sampled += 1
+                total_count += 1
                 label = str(row.get(label_column, "")).strip()
                 if _is_attack_label(label):
-                    attack_label_count += 1
-                    attack_labels.add(label)
+                    attack_count += 1
+                    labels[label] += 1
+        return attack_count, total_count, labels
+
+    attack_label_count = 0
+    total_rows_sampled = 0
+    attack_labels: Counter[str] = Counter()
+    try:
+        try:
+            attack_label_count, total_rows_sampled, attack_labels = read_labels("utf-8-sig")
+        except UnicodeDecodeError:
+            attack_label_count, total_rows_sampled, attack_labels = read_labels("cp1252")
     except Exception as exc:
+        reason = str(exc)
+        if reason == "Label column not found":
+            return {
+                "status": "not_available",
+                "prediction": "benign",
+                "attack_label_count": 0,
+                "attack_rows_sampled": 0,
+                "total_rows_sampled": 0,
+                "attack_labels": [],
+                "most_common_attack_label": "",
+                "reason": reason,
+            }
         return {
             "status": "not_available",
             "prediction": "benign",
@@ -159,9 +174,11 @@ def _read_flow_label_evidence(path: str, max_rows: int = DEFAULT_MAX_EVIDENCE_RO
             "attack_rows_sampled": 0,
             "total_rows_sampled": total_rows_sampled,
             "attack_labels": sorted(attack_labels),
+            "most_common_attack_label": "",
             "reason": f"unable to read flow CSV labels: {exc}",
         }
 
+    most_common_attack_label = attack_labels.most_common(1)[0][0] if attack_labels else ""
     return {
         "status": "success",
         "prediction": "attack" if attack_label_count else "benign",
@@ -169,6 +186,7 @@ def _read_flow_label_evidence(path: str, max_rows: int = DEFAULT_MAX_EVIDENCE_RO
         "attack_rows_sampled": attack_label_count,
         "total_rows_sampled": total_rows_sampled,
         "attack_labels": sorted(attack_labels),
+        "most_common_attack_label": most_common_attack_label,
         "reason": "Label column sampled from matched CICFlowMeter CSV",
     }
 
@@ -259,12 +277,103 @@ def _read_prediction_evidence(
     }
 
 
+def _numeric(row: dict[str, Any], key: str) -> float:
+    try:
+        return float(str(row.get(key, "")).strip())
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _read_live_flow_rule_evidence(path: str) -> dict[str, Any]:
+    if not path:
+        return {
+            "status": "not_available",
+            "prediction": "benign",
+            "number_of_flows": 0,
+            "detection_reason": "no extracted flow CSV",
+        }
+
+    flow_path = Path(path)
+    if not flow_path.exists():
+        return {
+            "status": "not_available",
+            "prediction": "benign",
+            "number_of_flows": 0,
+            "detection_reason": f"extracted flow CSV not found: {path}",
+        }
+
+    number_of_flows = 0
+    total_syn = 0.0
+    unique_dst_ports: set[str] = set()
+    max_packets_per_sec = 0.0
+    max_bytes_per_sec = 0.0
+    total_packets = 0.0
+    total_bytes = 0.0
+
+    try:
+        with flow_path.open("r", encoding="utf-8", newline="") as handle:
+            reader = csv.DictReader(handle)
+            for row in reader:
+                number_of_flows += 1
+                dst_port = str(row.get("dst_port", "")).strip()
+                if dst_port:
+                    unique_dst_ports.add(dst_port)
+                total_syn += _numeric(row, "syn_count")
+                total_packets += _numeric(row, "packet_count")
+                total_bytes += _numeric(row, "byte_count")
+                if _numeric(row, "packet_count") >= 10 and _numeric(row, "duration_sec") >= 0.1:
+                    max_packets_per_sec = max(max_packets_per_sec, _numeric(row, "packets_per_sec"))
+                    max_bytes_per_sec = max(max_bytes_per_sec, _numeric(row, "bytes_per_sec"))
+    except Exception as exc:
+        return {
+            "status": "not_available",
+            "prediction": "benign",
+            "number_of_flows": number_of_flows,
+            "detection_reason": f"unable to read extracted flow CSV: {exc}",
+        }
+
+    reasons: list[str] = []
+    attack_type = "BENIGN"
+    if len(unique_dst_ports) >= 25 and total_syn >= 25:
+        attack_type = "PortScanLike"
+        reasons.append(
+            f"many destination ports with SYN activity: dst_ports={len(unique_dst_ports)}, syn_count={int(total_syn)}"
+        )
+    if total_syn >= 100:
+        attack_type = "SynFloodLike" if attack_type == "BENIGN" else attack_type
+        reasons.append(f"high SYN volume: syn_count={int(total_syn)}")
+    if max_packets_per_sec >= 1000 or max_bytes_per_sec >= 1_000_000:
+        attack_type = "HighRateFlow" if attack_type == "BENIGN" else attack_type
+        reasons.append(
+            f"abnormal flow rate: max_packets_per_sec={max_packets_per_sec:.2f}, "
+            f"max_bytes_per_sec={max_bytes_per_sec:.2f}"
+        )
+
+    prediction = "attack" if reasons else "benign"
+    return {
+        "status": "success",
+        "prediction": prediction,
+        "attack_type": attack_type if prediction == "attack" else "BENIGN",
+        "severity": "high" if prediction == "attack" else "info",
+        "number_of_flows": number_of_flows,
+        "unique_dst_ports": len(unique_dst_ports),
+        "total_syn_count": int(total_syn),
+        "total_packets": int(total_packets),
+        "total_bytes": int(total_bytes),
+        "max_packets_per_sec": max_packets_per_sec,
+        "max_bytes_per_sec": max_bytes_per_sec,
+        "detection_reason": "; ".join(reasons) if reasons else "no live flow rule threshold exceeded",
+    }
+
+
 def run_demo_ids_inference(
     tenant_id: str,
     source_id: str,
     file_path: str,
     artifacts_dir: str = "outputs/offline_adapter_test",
     csv_root: str = "data/csv/csv_CIC_IDS2017",
+    extracted_flow_csv_path: str = "",
+    extraction_metadata: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Return an IDS-style demo result using saved offline cascade artifacts."""
     artifacts = Path(artifacts_dir)
@@ -272,8 +381,19 @@ def run_demo_ids_inference(
     metrics = _load_main_metrics(artifacts / "overall_metrics.csv")
     max_rows = int(os.getenv("IDS_EVIDENCE_MAX_ROWS", str(DEFAULT_MAX_EVIDENCE_ROWS)))
 
-    resolver_result = resolve_pcap_to_flow_csv(file_path, csv_root=csv_root)
-    matched_flow_csv = resolver_result.get("flow_csv_path", "")
+    extraction_metadata = extraction_metadata or {}
+    live_flow_evidence = _read_live_flow_rule_evidence(extracted_flow_csv_path)
+    if extracted_flow_csv_path:
+        resolver_result = {
+            "status": "not_used",
+            "pcap_path": file_path,
+            "flow_csv_path": "",
+            "reason": "live extracted flow CSV used as primary evidence",
+        }
+        matched_flow_csv = ""
+    else:
+        resolver_result = resolve_pcap_to_flow_csv(file_path, csv_root=csv_root)
+        matched_flow_csv = resolver_result.get("flow_csv_path", "")
     label_evidence = _read_flow_label_evidence(matched_flow_csv, max_rows=max_rows)
     prediction_evidence = _read_prediction_evidence(
         artifacts / "test_cascade_predictions.csv",
@@ -281,31 +401,62 @@ def run_demo_ids_inference(
         max_rows=max_rows,
     )
 
-    if prediction_evidence.get("status") == "success":
-        prediction = str(prediction_evidence.get("prediction", "benign"))
-        evidence_source = "ids_prediction_artifact_source_file"
-        sample = dict(prediction_evidence.get("sample") or {})
+    artifact_prediction = str(prediction_evidence.get("prediction", "benign"))
+    artifact_conflict = False
+
+    if os.getenv("DEMO_FORCE_ATTACK", "0") == "1":
+        prediction = "attack"
+        evidence_source = "demo_force_attack_override"
+        attack_type = "DemoOverride"
+        sample = _sample_prediction(artifacts / "test_cascade_predictions.csv", prediction)
+    elif live_flow_evidence.get("status") == "success":
+        prediction = str(live_flow_evidence.get("prediction", "benign"))
+        evidence_source = "live_extracted_flow_rules"
+        attack_type = str(live_flow_evidence.get("attack_type") or "BENIGN")
+        sample = {}
     elif label_evidence.get("status") == "success":
         prediction = str(label_evidence.get("prediction", "benign"))
         evidence_source = "matched_cic_flow_csv_label"
-        sample = _sample_prediction(artifacts / "test_cascade_predictions.csv", prediction)
-    elif os.getenv("DEMO_FORCE_ATTACK", "0") == "1":
-        prediction = "attack"
-        evidence_source = "debug_demo_force_attack_override"
-        sample = _sample_prediction(artifacts / "test_cascade_predictions.csv", prediction)
+        if prediction == "attack":
+            attack_type = str(label_evidence.get("most_common_attack_label") or "UnknownAttack")
+        else:
+            attack_type = "BENIGN"
+        sample = {}
+        if prediction_evidence.get("status") == "success":
+            sample = dict(prediction_evidence.get("sample") or {})
+            artifact_conflict = artifact_prediction != prediction
+        else:
+            sample = _sample_prediction(artifacts / "test_cascade_predictions.csv", prediction)
+    elif prediction_evidence.get("status") == "success":
+        sample = dict(prediction_evidence.get("sample") or {})
+        if artifact_prediction == "attack":
+            prediction = "benign"
+            evidence_source = "ids_prediction_artifact_without_label_confirmation"
+            attack_type = "BENIGN"
+            artifact_conflict = True
+        else:
+            prediction = artifact_prediction
+            evidence_source = "ids_prediction_artifact_source_file"
+            attack_type = "BENIGN"
+        if prediction == "attack":
+            attack_type = str(sample.get("multiclass_label") or "HybridCascadeDemo")
+            if attack_type.strip().upper() == "BENIGN":
+                attack_type = "HybridCascadeDemo"
     else:
-        prediction = _prediction_from_demo_rule(file_path)
-        evidence_source = "debug_filename_fallback"
-        sample = _sample_prediction(artifacts / "test_cascade_predictions.csv", prediction)
+        prediction = "benign"
+        evidence_source = "no_label_or_artifact_evidence"
+        attack_type = "BENIGN"
+        sample = {}
 
     score = _score_from_sample(sample)
-    attack_type = sample.get("multiclass_label") or "HybridCascadeDemo"
 
     if prediction == "attack":
-        severity = "high"
+        severity = str(live_flow_evidence.get("severity") or "high")
+        if attack_type.strip().upper() == "BENIGN":
+            attack_type = "HybridCascadeDemo"
     else:
         severity = "info"
-        attack_type = "none"
+        attack_type = "BENIGN"
 
     metrics_used = {
         "paper_model": metrics.get("paper_model"),
@@ -338,23 +489,29 @@ def run_demo_ids_inference(
         "source_id": source_id,
         "evidence": {
             "original_pcap_path": file_path,
+            "extracted_flow_csv_path": extracted_flow_csv_path,
+            "number_of_flows": live_flow_evidence.get(
+                "number_of_flows",
+                extraction_metadata.get("number_of_flows", 0),
+            ),
+            "detection_reason": live_flow_evidence.get("detection_reason", ""),
+            "live_flow_extraction": extraction_metadata,
+            "live_flow_rule_evidence": live_flow_evidence,
             "matched_flow_csv_path": matched_flow_csv,
             "pcap_flow_resolver": resolver_result,
             "evidence_source": evidence_source,
             "attack_label_count": label_evidence.get("attack_label_count", 0),
             "attack_rows_sampled": label_evidence.get("attack_rows_sampled", 0),
             "attack_prediction_count": prediction_evidence.get("attack_prediction_count", 0),
-            "total_rows_sampled": (
-                prediction_evidence.get("total_rows_sampled")
-                if prediction_evidence.get("status") == "success"
-                else label_evidence.get("total_rows_sampled", 0)
-            ),
+            "artifact_conflict": artifact_conflict,
+            "total_rows_sampled": label_evidence.get("total_rows_sampled", 0),
             "flow_label_evidence": label_evidence,
             "prediction_artifact_evidence": {
                 "status": prediction_evidence.get("status"),
                 "reason": prediction_evidence.get("reason"),
                 "attack_prediction_count": prediction_evidence.get("attack_prediction_count", 0),
                 "total_rows_sampled": prediction_evidence.get("total_rows_sampled", 0),
+                "prediction": prediction_evidence.get("prediction"),
             },
             "artifacts_dir": str(artifacts),
             "ids_artifacts_dir": str(artifacts),

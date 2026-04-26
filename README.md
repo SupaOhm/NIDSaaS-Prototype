@@ -209,6 +209,13 @@ captures. For example, DDoS and PortScan demo PCAPs can both be extracted from
 `Friday-WorkingHours.pcap`. The matching CSV samples provide the deterministic
 category label evidence used by the demo inference adapter.
 
+Live PCAP-to-flow extraction is available in the Spark processor. Configure
+`CICFLOWMETER_CMD` or `CICFLOWMETER_JAR` to use CICFlowMeter, or install
+`tshark` for the built-in flow-like fallback extractor. Extracted flow CSVs are
+written to `LIVE_FLOW_OUTPUT_DIR`, default `outputs/live_flows`, and are used as
+primary demo classification evidence. The older PCAP-to-CIC CSV resolver remains
+a labeled fallback path when no live extracted flow CSV is supplied.
+
 Terminal 1:
 
 ```bash

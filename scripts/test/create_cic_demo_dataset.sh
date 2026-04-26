@@ -86,10 +86,16 @@ create_pcap_sample "benign" \
   "${PCAP_OUTPUT_DIR}/cic_benign_sample.pcap" \
   "broad Monday PCAP trigger; benign CSV sample provides label evidence"
 
-create_pcap_sample "attack" \
-  "${PCAP_ROOT}/Friday-WorkingHours.pcap" \
-  "${PCAP_OUTPUT_DIR}/cic_attack_sample.pcap" \
-  "legacy broad Friday PCAP trigger; category CSV sample provides label evidence"
+if [[ -f "${PCAP_ROOT}/Friday-WorkingHours.pcap" ]]; then
+  echo "[SAMPLES] finding Friday packet window for live attack sample"
+  ./scripts/test/find_live_attack_pcap_window.sh \
+    "${PCAP_ROOT}/Friday-WorkingHours.pcap" \
+    "${PCAP_OUTPUT_DIR}/cic_attack_sample.pcap"
+  created_pcap_outputs+=("${PCAP_OUTPUT_DIR}/cic_attack_sample.pcap")
+else
+  echo "[SAMPLES] WARNING: Friday source PCAP missing; skipping live attack sample: ${PCAP_ROOT}/Friday-WorkingHours.pcap" >&2
+  skipped_pcap_categories+=("attack")
+fi
 
 create_pcap_sample "ddos" \
   "${PCAP_ROOT}/Friday-WorkingHours.pcap" \

@@ -20,6 +20,7 @@ for path in (PROJECT_ROOT, SRC_DIR):
         sys.path.insert(0, str(path))
 
 from nidsaas.detection.demo_inference_adapter import run_demo_ids_inference
+from nidsaas.detection.live_flow_extractor import extract_flows_from_pcap
 from services.alert_dispatcher.dispatcher import dispatch_alert
 
 
@@ -95,6 +96,9 @@ def _build_alert(row, ids_result: dict, webhook_base_url: str) -> tuple[dict, st
         "stage": ids_result.get("stage", "spark_real_ids_artifact_demo"),
         "evidence": {
             "original_pcap_path": evidence.get("original_pcap_path", file_path),
+            "extracted_flow_csv_path": evidence.get("extracted_flow_csv_path"),
+            "number_of_flows": evidence.get("number_of_flows"),
+            "detection_reason": evidence.get("detection_reason"),
             "matched_flow_csv_path": evidence.get("matched_flow_csv_path"),
             "evidence_source": evidence.get("evidence_source"),
             "attack_label_count": evidence.get("attack_label_count"),
@@ -126,6 +130,7 @@ def print_batch(batch_df: DataFrame, batch_id: int) -> None:
     print(f"[SPARK] processing batch_id={batch_id}, rows={rows}", flush=True)
     artifacts_dir = os.getenv("IDS_ARTIFACTS_DIR", "outputs/offline_adapter_test")
     csv_root = os.getenv("CIC_FLOW_CSV_ROOT", "data/csv/csv_CIC_IDS2017")
+    live_flow_output_dir = os.getenv("LIVE_FLOW_OUTPUT_DIR", "outputs/live_flows")
     webhook_base_url = os.getenv("WEBHOOK_BASE_URL", "http://host.docker.internal:9001")
     result_rows = []
 
@@ -149,6 +154,14 @@ def print_batch(batch_df: DataFrame, batch_id: int) -> None:
             f"gateway_decision={row['decision']}",
             flush=True,
         )
+        print("[SPARK] extracting live flows from uploaded PCAP", flush=True)
+        extraction_metadata = extract_flows_from_pcap(
+            file_path,
+            output_dir=live_flow_output_dir,
+        )
+        extracted_flow_csv_path = str(extraction_metadata.get("extracted_flow_csv_path", ""))
+        print(f"[SPARK] extracted flow CSV: {extracted_flow_csv_path}", flush=True)
+        print(f"[SPARK] number_of_flows={extraction_metadata.get('number_of_flows', 0)}", flush=True)
         print("[SPARK] calling IDS demo inference adapter", flush=True)
         ids_result = run_demo_ids_inference(
             tenant_id=row["tenant_id"] or "unknown_tenant",
@@ -156,13 +169,16 @@ def print_batch(batch_df: DataFrame, batch_id: int) -> None:
             file_path=file_path,
             artifacts_dir=artifacts_dir,
             csv_root=csv_root,
+            extracted_flow_csv_path=extracted_flow_csv_path,
+            extraction_metadata=extraction_metadata,
         )
         prediction = ids_result.get("prediction", "benign")
         severity = ids_result.get("severity", "info")
         stage = ids_result.get("stage", "spark_real_ids_artifact_demo")
         evidence = ids_result.get("evidence", {})
         print(f"[SPARK] received PCAP: {evidence.get('original_pcap_path', file_path)}", flush=True)
-        print(f"[SPARK] matched flow CSV: {evidence.get('matched_flow_csv_path', '')}", flush=True)
+        print(f"[SPARK] extracted flow CSV: {evidence.get('extracted_flow_csv_path', '')}", flush=True)
+        print(f"[SPARK] detection_reason: {evidence.get('detection_reason', '')}", flush=True)
         print(f"[SPARK] evidence_source: {evidence.get('evidence_source', '')}", flush=True)
         print(f"[SPARK] prediction={prediction}", flush=True)
 
@@ -173,7 +189,7 @@ def print_batch(batch_df: DataFrame, batch_id: int) -> None:
             else:
                 print(f"[ALERT] dispatch failed for {url}", flush=True)
         else:
-            print("[SPARK] benign result; no alert dispatched", flush=True)
+            print("[SPARK] benign result, no alert dispatched", flush=True)
 
         result_rows.append(
             {
@@ -223,6 +239,7 @@ def main() -> None:
     print(f"[SPARK] master: {spark_master}", flush=True)
     print(f"[SPARK] IDS artifacts dir: {artifacts_dir}", flush=True)
     print(f"[SPARK] CIC flow CSV root: {csv_root}", flush=True)
+    print(f"[SPARK] live flow output dir: {os.getenv('LIVE_FLOW_OUTPUT_DIR', 'outputs/live_flows')}", flush=True)
     print(f"[SPARK] webhook base URL: {webhook_base_url}", flush=True)
     print(f"[SPARK] DEMO_FORCE_ATTACK: {os.getenv('DEMO_FORCE_ATTACK', '0')}", flush=True)
 

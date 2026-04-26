@@ -28,6 +28,11 @@ The category PCAP files are broad-day demo triggers rather than
 category-isolated captures. The matching CSV samples provide category-specific
 label evidence for inference.
 
+For live PCAP classification, Spark extracts flows from the uploaded PCAP before
+calling inference. Set `CICFLOWMETER_CMD` or `CICFLOWMETER_JAR` to use
+CICFlowMeter; otherwise install `tshark` for the fallback extractor. Flow CSVs
+are written under `LIVE_FLOW_OUTPUT_DIR`, default `outputs/live_flows`.
+
 Open:
 
 ```text
