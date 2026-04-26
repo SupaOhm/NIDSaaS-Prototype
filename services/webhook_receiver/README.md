@@ -5,8 +5,10 @@ Demo FastAPI service for tenant-scoped alert delivery. It stores alerts in memor
 Run:
 
 ```bash
-./scripts/run_webhook_receiver.sh
+./scripts/demo/start_services.sh
 ```
+
+The webhook receiver is started by `start_services.sh` alongside the gateway.
 
 Open:
 

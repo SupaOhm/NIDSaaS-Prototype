@@ -5,7 +5,7 @@ Fast local processor for the presentation path `Gateway -> Kafka -> demo detecti
 Run:
 
 ```bash
-DEMO_FORCE_ATTACK=1 ./scripts/run_demo_processor.sh
+DEMO_FORCE_ATTACK=1 ./scripts/debug/run_demo_processor.sh
 ```
 
 Defaults:

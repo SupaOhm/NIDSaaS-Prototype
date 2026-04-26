@@ -7,10 +7,11 @@ FastAPI gateway for prototype PCAP/file upload ingestion. It applies mock API-ke
 From the repository root:
 
 ```bash
-./scripts/run_gateway.sh
+./scripts/demo/start_services.sh
 ```
 
-The service listens on `http://127.0.0.1:8000` by default.
+The gateway is started by `start_services.sh` and listens on
+`http://127.0.0.1:8000` by default.
 
 ## Upload
 

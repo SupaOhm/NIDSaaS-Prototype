@@ -5,7 +5,7 @@ This service proves the Kafka -> Spark portion of the NIDSaaS prototype. It read
 Run it through Docker after Kafka is running:
 
 ```bash
-./scripts/run_spark_stream.sh
+./scripts/demo/run_spark_processor.sh
 ```
 
 Defaults:
@@ -16,4 +16,6 @@ Defaults:
 
 The gateway still runs locally and publishes to host Kafka at `localhost:9092`. Spark runs in Docker and reads Kafka at the internal Compose address `kafka:29092`.
 
-This milestone does not run IDS inference yet.
+The current demo path calls the IDS demo inference adapter backed by
+`outputs/offline_adapter_test` artifacts and dispatches alerts to the webhook
+receiver.
