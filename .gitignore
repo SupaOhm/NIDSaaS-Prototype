@@ -57,3 +57,7 @@ data/samples/*.csv
 !data/samples/csv/
 !data/samples/pcap/*.pcap
 !data/samples/csv/*.csv
+
+# Local generated demo/debug files
+data/
+src/debug/
