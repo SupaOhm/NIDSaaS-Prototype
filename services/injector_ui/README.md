@@ -1,10 +1,11 @@
 # Injector UI
 
-Future/optional FastAPI tenant portal. It is kept in the repository for later
-UI work, but the current presentation demo uses CLI upload for reliability:
+Auxiliary FastAPI tenant upload portal. The main reproducible evaluation path
+uses CLI upload scripts so every command and response is visible in the
+terminal:
 
 ```bash
-./scripts/test/pcap_upload.sh -d data/samples/pcap/cic_attack_sample.pcap -t tenant_A
+./scripts/test/pcap_upload.sh --csv -d data/samples/csv/ddos.csv -t tenant_A
 ```
 
 Run:
@@ -19,8 +20,8 @@ Open:
 http://localhost:7000
 ```
 
-Create the two demo PCAP samples first if they do not exist:
+PCAP sample upload is also available:
 
 ```bash
-./scripts/test/create_cic_pcap_samples.sh
+./scripts/test/pcap_upload.sh -d data/samples/pcap/ddos.pcap -t tenant_A
 ```

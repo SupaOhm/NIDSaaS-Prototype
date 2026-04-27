@@ -1,26 +1,29 @@
 # Prototype Architecture
 
-The planned NIDSaaS prototype will turn the current offline IDS pipeline into a tenant-aware streaming workflow. The first implementation should preserve the existing detector contract while adding service boundaries around ingestion, streaming, inference, and alert delivery.
+This repository implements a local, tenant-aware IDSaaS demonstration pipeline with explicit service boundaries for ingestion, streaming, inference, alert publication, and webhook delivery.
 
 ```text
-PCAP Injector UI
--> Gateway API with mock auth and dedup
+PCAP or CICFlowMeter CSV upload
+-> Gateway API with API-key authentication and deduplication
 -> Kafka topic raw.tenant.<tenant_id>
--> PySpark Structured Streaming preprocessing and IDS inference
--> Alert Dispatcher
+-> Spark Structured Streaming detection processor
+-> Kafka topic alert.tenant.<tenant_id>
+-> Alert Delivery Service
 -> Tenant Webhook Receiver UI
 ```
 
 ## Components
 
-`services/injector_ui/` will provide a simple interface for choosing PCAP inputs and submitting ingestion jobs.
+`services/gateway/` validates tenant context, applies local API-key authentication, deduplicates repeated uploads, saves accepted files under `data/uploads/`, and publishes normalized events to tenant-scoped Kafka raw topics.
 
-`services/gateway/` will validate tenant context, perform mock authentication, deduplicate repeated chunks or events, and publish normalized raw events to Kafka topics named by tenant.
+`services/spark_stream/` consumes `raw.tenant.*` topics, routes CSV uploads to saved RF inference, resolves supported PCAP names to matching CICFlowMeter CSVs when available, and publishes attack alerts to `alert.tenant.<tenant_id>`.
 
-`services/spark_stream/` will consume tenant raw topics, preprocess records into the feature schema expected by the IDS modules under `src/nidsaas/detection/`, run detection inference, and publish alert events.
+`services/alert_delivery/` consumes `alert.tenant.*` topics and forwards each alert to the tenant webhook URL.
 
-`services/alert_dispatcher/` will consume alert events and deliver tenant-specific payloads to configured webhook destinations.
+`services/webhook_receiver/` stores received alerts in memory and exposes both JSON endpoints and a browser view for tenant-specific alert inspection.
 
-`services/webhook_receiver/` will provide a local receiver and UI for validating alert delivery during demos.
+`services/alert_dispatcher/` contains the webhook POST helper used by Alert Delivery.
 
-Kafka, Spark, gateway logic, and webhook delivery are planned but not implemented yet.
+`services/injector_ui/` contains an auxiliary browser upload interface. The reproducible evaluation workflow uses CLI upload scripts so commands and responses are visible in the terminal.
+
+`src/nidsaas/detection/` contains the IDS pipeline modules, saved-artifact inference adapter, PCAP resolver, live flow extraction helper, and offline experiment entry points.

@@ -1,1 +1,1 @@
-"""Webhook receiver service placeholder."""
+"""Webhook receiver service package."""

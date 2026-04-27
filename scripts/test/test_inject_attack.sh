@@ -4,11 +4,11 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$REPO_ROOT"
 
-SAMPLE_FILE="data/samples/pcap/cic_attack_sample.pcap"
+SAMPLE_FILE="data/samples/pcap/ddos.pcap"
 
 if [[ ! -f "$SAMPLE_FILE" ]]; then
   echo "[TEST] Missing demo PCAP sample: ${SAMPLE_FILE}" >&2
-  echo "[TEST] Create samples with: ./scripts/test/create_cic_pcap_samples.sh" >&2
+  echo "[TEST] Place demo samples under data/samples/pcap/ or run the sample-generation scripts." >&2
   exit 1
 fi
 

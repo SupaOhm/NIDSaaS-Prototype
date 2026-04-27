@@ -1,62 +1,69 @@
 # NIDSaaS Prototype
 
-NIDSaaS Prototype is a research-to-prototype repository for Network Intrusion Detection as a Service. The main objective of this README is to make the prototype reproducible: a new operator should be able to install the required tools, prepare the data/artifacts, run the local demo step by step, verify the expected outputs, and stop or reset the system safely.
+## Overview
 
-The current demo shows a tenant-scoped IDS workflow:
+This repository contains the submitted prototype implementation for a tenant-aware Network Intrusion Detection as a Service (NIDSaaS) pipeline. It demonstrates local reproducibility of ingestion, tenant-scoped Kafka buffering, Spark-based detection orchestration, saved Random Forest (RF) inference, Kafka alert topics, alert delivery, and a browser-based webhook alert view.
+
+Main runtime flow:
 
 ```text
-PCAP or Flow CSV Upload
+PCAP or CICFlowMeter CSV upload
 -> Gateway API
 -> Kafka raw.tenant.<tenant_id>
 -> Spark Structured Streaming
--> IDS artifact inference adapter
+-> saved RF / IDS inference
 -> Kafka alert.tenant.<tenant_id>
 -> Alert Delivery Service
 -> Webhook Alert UI
 ```
 
-The demo uses real CIC-IDS2017 PCAP upload inputs and direct CICFlowMeter CSV flow uploads. PCAP uploads resolve to pre-extracted CICFlowMeter CSV evidence when available, and CSV uploads go directly through saved RF inference. Full live CICFlowMeter extraction and full online IDS retraining are not part of the current presentation demo.
+The recommended evaluator path is the RF Flow CSV demo mode. It uploads real CICFlowMeter-compatible CIC-IDS2017 flow CSV files through the Gateway and runs the saved RF inference adapter inside Spark.
 
-## Current Prototype Scope
+## Repository Structure
 
-Implemented:
-
-- Offline hybrid IDS pipeline under `src/nidsaas/detection/`
-- Snort replay and alert-mapping utilities under `src/nidsaas/snort/`
-- Gateway upload API with mock API-key authentication
-- Tenant-scoped Kafka upload topics: `raw.tenant.<tenant_id>`
-- Spark Structured Streaming processor for upload events
-- IDS artifact inference adapter using saved offline artifacts
-- Tenant-scoped Kafka alert topics: `alert.tenant.<tenant_id>`
-- Alert delivery service
-- Webhook receiver with browser-based tenant alert view
-- CLI-based demo upload workflow
-
-Not implemented yet:
-
-- Full production authentication and tenant management
-- Full live CICFlowMeter extraction for every uploaded PCAP
-- Full online IDS model inference/retraining pipeline
-- Production deployment hardening
-- Injector UI production workflow
+```text
+.
+├── README.md
+├── requirements.txt
+├── docker-compose.yml
+├── docker/spark/Dockerfile
+├── data/
+│   ├── csv/                  # local CIC-IDS2017 CSV data
+│   ├── pcap/                 # local CIC-IDS2017 PCAP data
+│   ├── samples/csv/          # small demo flow CSV samples
+│   └── samples/pcap/         # small demo PCAP samples
+├── outputs/
+│   └── offline_adapter_test/ # saved RF/IDS artifacts
+├── services/
+│   ├── gateway/              # FastAPI upload gateway
+│   ├── spark_stream/         # Spark upload-event processor
+│   ├── alert_delivery/       # Kafka alert topic consumer
+│   ├── webhook_receiver/     # tenant alert receiver and UI
+│   └── alert_dispatcher/     # webhook POST helper
+├── src/nidsaas/
+│   ├── detection/            # IDS pipeline and inference adapters
+│   └── snort/                # Snort utilities and rules
+├── scripts/
+│   ├── demo/                 # start, stop, reset, status scripts
+│   ├── test/                 # upload and validation scripts
+│   ├── debug/                # Kafka inspection scripts
+│   └── offline/              # offline IDS entry points
+└── docs/
+    └── DEMO_RUNBOOK.md       # detailed operator runbook
+```
 
 ## Prerequisites
 
 Recommended environment:
 
-- macOS or Linux
+- macOS or Linux terminal
 - Python 3.10 or 3.11
-- Docker and Docker Compose
+- Docker Desktop or Docker Engine with Docker Compose
 - Git
 - `curl`
 - At least 8 GB RAM available for Docker and Spark
 
-Optional tools:
-
-- `tshark` for live fallback flow extraction
-- CICFlowMeter if testing full PCAP-to-flow extraction outside the saved-artifact demo path
-
-Check basic tools:
+Verify tools:
 
 ```bash
 python3 --version
@@ -66,86 +73,29 @@ git --version
 curl --version
 ```
 
-## Repository Structure
-
-```text
-.
-├── README.md
-├── requirements.txt
-├── data/
-│   ├── csv/
-│   │   └── csv_CIC_IDS2017/
-│   ├── pcap/
-│   │   └── pcap_CIC_IDS2017/
-│   └── samples/
-├── outputs/
-├── src/
-│   └── nidsaas/
-│       ├── common/
-│       ├── config/
-│       ├── detection/
-│       └── snort/
-├── services/
-│   ├── gateway/
-│   ├── consumer/
-│   ├── alert_delivery/
-│   ├── spark_stream/
-│   ├── alert_dispatcher/
-│   ├── webhook_receiver/
-│   └── injector_ui/
-├── scripts/
-│   ├── demo/
-│   ├── test/
-│   ├── debug/
-│   ├── offline/
-│   └── README.md
-└── docs/
-```
-
 ## Required Local Data and Artifacts
 
-Large datasets and generated artifacts are intentionally excluded from Git.
-
-Expected local paths:
-
-```text
-data/csv/csv_CIC_IDS2017/          # CIC-IDS2017 flow CSV files
-data/pcap/pcap_CIC_IDS2017/        # CIC-IDS2017 PCAP files, optional for mining samples
-data/samples/pcap/                 # Small demo PCAP samples
-outputs/offline_adapter_test/       # Saved IDS artifacts for demo inference
-```
-
-Required saved artifact for the current Spark demo:
+Large CIC datasets and generated model artifacts are kept outside normal source control. For evaluation, place the provided data/artifact files at these paths before running the full demo:
 
 ```text
 outputs/offline_adapter_test/rf_anomaly.joblib
+data/samples/csv/benign.csv
+data/samples/csv/ddos.csv
 ```
 
-Required cached signature table for the offline IDS pipeline:
+Recommended additional files:
 
 ```text
+outputs/offline_adapter_test/
+data/csv/csv_CIC_IDS2017/Friday-WorkingHours-Afternoon-DDos.pcap_ISCX.csv
+data/samples/pcap/benign.pcap
+data/samples/pcap/ddos.pcap
 data/samples/signature_merged_predictions.csv
 ```
 
-Example demo PCAP files:
+The small CSV samples are enough for the main RF Flow CSV demo. The full CIC CSV path is used for larger validation.
 
-```text
-data/samples/pcap/cic_attack_sample.pcap
-data/samples/pcap/cic_ddos_sample.pcap
-data/samples/pcap/cic_portscan_sample.pcap
-data/samples/pcap/cic_webattack_sample.pcap
-data/samples/pcap/cic_benign_sample.pcap
-```
-
-If these files are missing, generate sample PCAP windows from local CIC-IDS2017 PCAPs:
-
-```bash
-./scripts/test/mine_live_cic_attack_windows.sh
-```
-
-The mining script searches local PCAP data and writes small demo files under `data/samples/pcap/`. If a specific attack type is unavailable in the local dataset, the script reports it as unavailable.
-
-## Python Setup
+## Setup
 
 From the repository root:
 
@@ -156,160 +106,266 @@ pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
-Verify the Python environment:
+Verify Python dependencies:
 
 ```bash
-python -c "import pandas, sklearn, joblib; print('python dependencies ok')"
+python -c "import pandas, sklearn, joblib, fastapi, kafka; print('python dependencies ok')"
 ```
 
-## Quick Start: Main Reproducible Demo
+Build or refresh the Spark image:
 
-Run each long-running component in a separate terminal.
+```bash
+docker compose build spark
+```
 
-### Terminal 1: Start Kafka and infrastructure
+Validate Compose configuration:
+
+```bash
+docker compose config --quiet
+```
+
+## Running the System
+
+Run long-running components in separate terminals so their logs remain visible.
+
+### Terminal 1: Infrastructure
 
 ```bash
 ./scripts/demo/start_infra.sh
 ```
 
-Expected result:
+Expected output includes:
 
-- Kafka starts successfully
-- Kafka is reachable on the host at `localhost:9092`
-- Kafka UI is available at `http://localhost:8080`
-
-Check Kafka topics:
-
-```bash
-./scripts/debug/kafka_list_topics.sh
+```text
+[INFRA] Kafka ready at localhost:9092
+[INFRA] Kafka UI: http://localhost:8080
 ```
 
-### Terminal 2: Start Gateway and Webhook Receiver
+### Terminal 2: Gateway and Webhook Receiver
 
 ```bash
 ./scripts/demo/start_services.sh
 ```
 
-Expected result:
+Expected endpoints:
 
-- Gateway starts at `http://localhost:8000`
-- Webhook receiver starts at `http://localhost:9001`
-- Logs are written under `logs/`
-- PID files are written under `.pids/`
+```text
+Gateway health: http://localhost:8000/health
+Webhook UI:     http://localhost:9001/
+```
 
-### Terminal 3: Start Spark Processor
+### Terminal 3: Spark Processor
 
 ```bash
 ./scripts/demo/run_spark_processor.sh
 ```
 
-Expected result:
+Spark subscribes to:
 
-- Spark starts through Docker Compose
-- Spark subscribes to `raw.tenant.*` topics
-- The terminal stays open and prints processing logs when uploads arrive
+```text
+raw.tenant.*
+```
 
-### Terminal 4: Start Alert Delivery
+### Terminal 4: Alert Delivery
 
 ```bash
 ./scripts/demo/run_alert_delivery.sh
 ```
 
-Expected result:
-
-- Alert delivery subscribes to `alert.tenant.*` topics
-- The terminal stays open and forwards alerts to the webhook receiver
-
-### Terminal 5: Upload a Demo PCAP
-
-```bash
-./scripts/test/pcap_upload.sh -d data/samples/pcap/cic_attack_sample.pcap -t tenant_A
-```
-
-Category-specific samples can also be uploaded:
-
-```bash
-./scripts/test/pcap_upload.sh -d data/samples/pcap/cic_ddos_sample.pcap -t tenant_A
-./scripts/test/pcap_upload.sh -d data/samples/pcap/cic_portscan_sample.pcap -t tenant_A
-./scripts/test/pcap_upload.sh -d data/samples/pcap/cic_webattack_sample.pcap -t tenant_A
-./scripts/test/pcap_upload.sh -d data/samples/pcap/cic_benign_sample.pcap -t tenant_A
-```
-
-View tenant alerts in the browser:
+Alert Delivery subscribes to:
 
 ```text
-http://localhost:9001/alerts/tenant_A/view
+alert.tenant.*
 ```
 
-## RF Flow CSV Demo Mode
+### Terminal 5: Upload Test Data
 
-The saved RF model requires CICFlowMeter-compatible flow features. Full PCAP files are large, and live CICFlowMeter extraction is outside the short presentation path, so the demo supports direct upload of real CICFlowMeter CSV flows from CIC-IDS2017.
-
-This still exercises the real pipeline:
-
-```text
-CSV upload -> Gateway -> Kafka raw.tenant.<tenant_id> -> Spark -> saved RF inference -> Kafka alert.tenant.<tenant_id> -> Alert Delivery -> Webhook UI
-```
-
-Upload sample flow CSVs:
+Recommended RF Flow CSV attack upload:
 
 ```bash
-./scripts/test/pcap_upload.sh --csv -d data/samples/csv/benign.csv -t tenant_A
 ./scripts/test/pcap_upload.sh --csv -d data/samples/csv/ddos.csv -t tenant_A
 ```
 
-Upload a full local CIC-IDS2017 flow CSV:
+Recommended benign upload:
+
+```bash
+./scripts/test/pcap_upload.sh --csv -d data/samples/csv/benign.csv -t tenant_A
+```
+
+Full CIC-IDS2017 CSV upload:
 
 ```bash
 ./scripts/test/pcap_upload.sh --csv -d data/csv/csv_CIC_IDS2017/Friday-WorkingHours-Afternoon-DDos.pcap_ISCX.csv -t tenant_A
 ```
 
-## Expected End-to-End Result
+PCAP upload mode is also available:
 
-A successful run should show this behavior:
-
-1. The upload script sends a PCAP to the Gateway.
-2. The Gateway saves the accepted upload under `data/uploads/<tenant_id>/<source_id>/`.
-3. The Gateway publishes upload metadata to `raw.tenant.tenant_A`.
-4. Spark consumes the upload event.
-5. Spark resolves the uploaded PCAP to CICFlowMeter-compatible CSV evidence when available.
-6. Spark uses the saved IDS artifact from `outputs/offline_adapter_test`.
-7. Spark publishes an alert to `alert.tenant.tenant_A`.
-8. Alert Delivery forwards the alert to the Webhook Receiver.
-9. The alert appears in the tenant alert UI.
-
-Expected Spark log pattern:
-
-```text
-[SPARK] processing batch_id=..., rows=1
-[SPARK] preprocessing upload event
-[SPARK] calling IDS demo inference adapter
-[SPARK] received PCAP: data/uploads/tenant_A/source_1/...
-[SPARK] matched flow CSV: data/csv/csv_CIC_IDS2017/...
-[SPARK] evidence_source: ids_prediction_artifact_source_file
-[SPARK] prediction=attack
-tenant_A source_1 ... attack high spark_real_ids_artifact_demo raw.tenant.tenant_A ...
+```bash
+./scripts/test/pcap_upload.sh -d data/samples/pcap/ddos.pcap -t tenant_A
+./scripts/test/pcap_upload.sh -d data/samples/pcap/benign.pcap -t tenant_A
 ```
 
-Expected alert page:
+Open the tenant alert page:
 
 ```text
 http://localhost:9001/alerts/tenant_A/view
 ```
 
-The page should show a new tenant-scoped IDS alert after the upload is processed.
+Open Kafka UI:
 
-## Print Demo Command Layout
+```text
+http://localhost:8080
+```
 
-To print the standard terminal layout:
+Print the standard command layout:
 
 ```bash
 ./scripts/demo/print_demo_commands.sh
 ```
 
-## Stop and Reset
+## Testing and Verification
 
-Stop local services:
+### 1. Status Check
+
+```bash
+./scripts/demo/demo_status.sh
+```
+
+This reports Docker containers, local services, ports, Kafka topics, Spark/Alert Delivery processes, and alert counts for `tenant_A` and `tenant_B`.
+
+### 2. RF Inference Smoke Test
+
+Host Python:
+
+```bash
+.venv/bin/python scripts/test/test_rf_inference_csv.py data/samples/csv/ddos.csv
+```
+
+Spark container:
+
+```bash
+docker compose run --rm spark python3 scripts/test/test_rf_inference_csv.py data/samples/csv/ddos.csv
+```
+
+Expected fields for the DDoS CSV:
+
+```text
+status="success"
+rows_scored > 0
+prediction="attack"
+attack_ratio >= 0.20
+```
+
+### 3. End-to-End Alert Test
+
+With infrastructure, services, Spark, and Alert Delivery running:
+
+```bash
+./scripts/test/test_flow_csv_rf_alert.sh data/samples/csv/ddos.csv
+```
+
+Expected Spark log pattern:
+
+```text
+[SPARK] using uploaded flow CSV for saved RF inference
+[SPARK] RF attack_ratio=...
+[SPARK] prediction=attack
+[SPARK] published alert to Kafka topic alert.tenant.tenant_A
+```
+
+Expected Alert Delivery log pattern:
+
+```text
+[DELIVERY] received alert from Kafka topic=alert.tenant.tenant_A
+[DELIVERY] forwarded to webhook http://localhost:9001/webhook/tenant_A
+```
+
+Expected UI result:
+
+```text
+http://localhost:9001/alerts/tenant_A/view
+```
+
+The page shows a tenant-scoped alert row with severity, prediction, attack type, timestamp, and evidence fields.
+
+### 4. Duplicate Upload Test
+
+```bash
+./scripts/test/test_duplicate_upload.sh
+```
+
+Expected behavior:
+
+- First upload returns `decision="forward"`.
+- Second upload of the same bytes for the same tenant/source returns `decision="drop_duplicate"`.
+- Duplicate reason is `content_hash_match`.
+
+### 5. Kafka Topic Inspection
+
+List topics:
+
+```bash
+./scripts/debug/kafka_list_topics.sh
+```
+
+Consume raw upload events:
+
+```bash
+./scripts/debug/kafka_consume_topic.sh raw.tenant.tenant_A
+```
+
+Consume alert events:
+
+```bash
+./scripts/debug/kafka_consume_topic.sh alert.tenant.tenant_A
+```
+
+## Expected Output Summary
+
+For an attack CSV upload, the system should produce:
+
+1. Gateway response with `status="accepted"` and `decision="forward"`.
+2. Kafka raw event on `raw.tenant.tenant_A`.
+3. Spark RF inference result with `prediction="attack"`.
+4. Kafka alert event on `alert.tenant.tenant_A`.
+5. Alert Delivery webhook forward log.
+6. Browser-visible alert at `http://localhost:9001/alerts/tenant_A/view`.
+
+For a benign CSV upload, Spark logs `prediction=benign` and no high-severity alert is forwarded.
+
+## Resetting Between Runs
+
+Reset in-memory and transient demo state without stopping Kafka/Spark:
+
+```bash
+./scripts/demo/reset_demo_state.sh
+```
+
+This clears:
+
+- Gateway dedupe memory
+- Webhook alert memory
+- `outputs/live_flows/`
+- `outputs/mining/`
+- `outputs/gateway_events.jsonl`
+
+Clear transient logs as well:
+
+```bash
+CLEAR_LOGS=1 ./scripts/demo/reset_demo_state.sh
+```
+
+The reset script preserves:
+
+- `outputs/offline_adapter_test/`
+- trained model artifacts
+- `data/csv/`
+- `data/pcap/`
+- `data/samples/`
+
+## Stopping the System
+
+Stop local Python services:
 
 ```bash
 ./scripts/demo/stop_services.sh
@@ -321,97 +377,15 @@ Stop Docker infrastructure:
 ./scripts/demo/stop_infra.sh
 ```
 
-Clear webhook alerts:
+Confirm status:
 
 ```bash
-curl -sS -X POST http://localhost:9001/admin/clear-alerts
+./scripts/demo/demo_status.sh
 ```
 
-Clear gateway in-memory dedupe state between repeated demos:
+## Offline IDS Pipeline
 
-```bash
-./scripts/test/clear_dedupe_memory.sh
-```
-
-If a port is already in use, stop old demo processes first:
-
-```bash
-./scripts/demo/stop_services.sh
-./scripts/demo/stop_infra.sh
-```
-
-Then check remaining processes manually if needed:
-
-```bash
-lsof -i :8000
-lsof -i :9001
-lsof -i :9092
-```
-
-## Duplicate Upload Test
-
-Run the duplicate upload test:
-
-```bash
-./scripts/test/test_duplicate_upload.sh
-```
-
-Expected behavior:
-
-- First unique batch returns `decision="forward"` and is published to Kafka.
-- Re-uploading the exact same file for the same tenant/source/epoch returns `decision="drop_duplicate"` and is not published.
-- A stale batch returns `decision="drop_stale"`.
-- An overlapping new batch returns `decision="trim_overlap"` with `effective_start_offset`.
-
-Consume the raw tenant topic for debugging:
-
-```bash
-./scripts/debug/kafka_consume_topic.sh raw.tenant.tenant_A
-```
-
-## Manual Gateway Upload Test
-
-Start infrastructure and services first:
-
-```bash
-./scripts/demo/start_infra.sh
-./scripts/demo/start_services.sh
-```
-
-Create a tiny sample file:
-
-```bash
-mkdir -p data/samples
-echo "demo packet data for NIDSaaS gateway test" > data/samples/demo_upload.pcap
-```
-
-Upload it manually:
-
-```bash
-curl -sS --connect-timeout 5 --max-time 20 \
-  -X POST http://localhost:8000/upload-pcap \
-  -H "x-api-key: dev-secret" \
-  -F tenant_id=tenant_A \
-  -F source_id=source_1 \
-  -F file_epoch=demo_epoch \
-  -F start_offset=0 \
-  -F end_offset=100 \
-  -F file=@data/samples/demo_upload.pcap
-```
-
-If Kafka is unavailable, the Gateway should not crash. It writes accepted upload events to:
-
-```text
-outputs/gateway_events.jsonl
-```
-
-and returns `published=false`.
-
-## Run the Offline IDS Pipeline
-
-The offline IDS pipeline is separate from the live demo and can be used to regenerate experiment outputs.
-
-From the repository root:
+The repository also includes the offline IDS experiment pipeline. Run it when regenerating offline experiment outputs:
 
 ```bash
 python scripts/offline/run_pipeline.py \
@@ -424,164 +398,162 @@ python scripts/offline/run_pipeline.py \
   --seed 42
 ```
 
-The current detector pipeline:
-
-1. Loads and normalizes CIC-IDS2017 flow CSVs.
-2. Splits data with the locked `temporal_by_file` strategy.
-3. Merges cached or regenerated signature/rate-rule predictions.
-4. Trains or loads a self-supervised RF anomaly detector.
-5. Calibrates RF anomaly scores with split conformal p-values.
-6. Trains an escalation gate on suspicious validation rows.
-7. Exports validation/test prediction tables and metrics.
-8. Applies validation-calibrated operating thresholds.
-
-## Baseline and Snort Utilities
-
-Baseline wrapper:
+Related utilities:
 
 ```bash
 python scripts/offline/run_baseline.py rf --help
 python scripts/offline/run_baseline.py rate --help
 python scripts/offline/run_baseline.py anomaly --help
-```
-
-Snort utility wrapper:
-
-```bash
 python scripts/offline/run_snort.py runner --help
 python scripts/offline/run_snort.py parser --help
-python scripts/offline/run_snort.py policy-filter --help
-python scripts/offline/run_snort.py evaluator --help
-```
-
-Snort community rules and SID policy files are kept under:
-
-```text
-src/nidsaas/snort/rules/
-```
-
-## Important Environment Variables
-
-The Spark runner has these useful defaults:
-
-```text
-SPARK_KAFKA_PACKAGE=org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.1
-IDS_ARTIFACTS_DIR=outputs/offline_adapter_test
-CIC_FLOW_CSV_ROOT=data/csv/csv_CIC_IDS2017
-DEMO_FORCE_ATTACK=0
-LIVE_FLOW_OUTPUT_DIR=outputs/live_flows
-```
-
-Use `DEMO_FORCE_ATTACK=1` only as a debug override, not for the main reproducible demo.
-
-Example override:
-
-```bash
-IDS_ARTIFACTS_DIR=outputs/offline_adapter_test ./scripts/demo/run_spark_processor.sh
 ```
 
 ## Troubleshooting
 
-### Port already in use
+### Docker is not running
 
-```bash
-./scripts/demo/stop_services.sh
-lsof -i :8000
-lsof -i :9001
+Symptom:
+
+```text
+Cannot connect to the Docker daemon
 ```
 
-Kill only the stale process if needed.
+Action:
 
-### Kafka topic not found
-
-Start infrastructure first:
+Start Docker Desktop or Docker Engine, then run:
 
 ```bash
+docker compose config --quiet
 ./scripts/demo/start_infra.sh
 ```
 
-Then list topics:
+### Kafka is not ready
+
+Action:
 
 ```bash
+./scripts/demo/start_infra.sh
 ./scripts/debug/kafka_list_topics.sh
 ```
 
-### Spark does not receive uploads
-
-Check that the Gateway published the upload:
+If topics are still unavailable, inspect container status:
 
 ```bash
-./scripts/debug/kafka_consume_topic.sh raw.tenant.tenant_A
+docker compose ps
 ```
 
-Check that Spark is running in its own terminal:
+### Python virtual environment is not active
+
+Symptom:
+
+```text
+ModuleNotFoundError
+```
+
+Action:
 
 ```bash
-./scripts/demo/run_spark_processor.sh
+source .venv/bin/activate
+pip install -r requirements.txt
+```
+
+### Port already in use
+
+Check common ports:
+
+```bash
+lsof -i :8000
+lsof -i :9001
+lsof -i :8080
+lsof -i :4040
+```
+
+Stop local services managed by this repository:
+
+```bash
+./scripts/demo/stop_services.sh
+```
+
+Port `7000` can be used by macOS ControlCenter. It is only relevant for the auxiliary injector UI. The main demo uses CLI upload.
+
+### Spark runs but no alert appears
+
+Check the Spark terminal for:
+
+```text
+[SPARK] prediction=attack
+[SPARK] published alert to Kafka topic alert.tenant.tenant_A
+```
+
+Then check Alert Delivery:
+
+```text
+[DELIVERY] received alert from Kafka topic=alert.tenant.tenant_A
+[DELIVERY] forwarded to webhook
+```
+
+Check the alert topic directly:
+
+```bash
+./scripts/debug/kafka_consume_topic.sh alert.tenant.tenant_A
 ```
 
 ### Alert page is empty
 
-Check that Alert Delivery is running:
+Confirm the webhook receiver is running:
 
 ```bash
-./scripts/demo/run_alert_delivery.sh
+curl http://localhost:9001/
+curl http://localhost:9001/alerts/tenant_A
 ```
 
-Check the tenant page:
+Then open:
 
 ```text
 http://localhost:9001/alerts/tenant_A/view
 ```
 
-### Missing demo PCAP samples
+### Duplicate upload is dropped
 
-Generate samples from local CIC-IDS2017 PCAPs:
+This is expected replay-protection behavior. Reset demo state when repeating the same upload during demonstrations:
 
 ```bash
-./scripts/test/mine_live_cic_attack_windows.sh
+./scripts/demo/reset_demo_state.sh
 ```
 
-### Missing saved IDS artifacts
+### Spark container RF inference returns an error
 
-The main demo expects saved artifacts under:
+Run the same RF check inside the Spark container:
+
+```bash
+docker compose run --rm spark python3 scripts/test/test_rf_inference_csv.py data/samples/csv/ddos.csv
+```
+
+The JSON output includes diagnostic fields:
 
 ```text
-outputs/offline_adapter_test/
+input_file_exists
+input_file_size_bytes
+raw_rows_loaded
+rows_after_cleanup
+rows_scored
+missing_columns
+error
 ```
 
-If this directory is missing, run the offline pipeline or copy the prepared artifacts before starting the Spark demo.
+Use these fields to distinguish file path, CSV schema, and artifact-loading issues.
 
-## Reproducibility Checklist
+## Notes for Evaluation
 
-Before presenting or testing, verify:
+- Run commands from the repository root.
+- Use separate terminals for infrastructure/services, Spark, Alert Delivery, and uploads.
+- The default API key for local evaluation is `dev-secret`.
+- Tenant isolation is visible through topic names such as `raw.tenant.tenant_A` and `alert.tenant.tenant_A`.
+- Generated uploads and runtime outputs are written under `data/uploads/`, `outputs/`, and `logs/`.
+- Large CIC datasets and model artifacts should remain outside source control unless they are explicitly included in the evaluation package.
 
-- Python virtual environment is active
-- Dependencies are installed from `requirements.txt`
-- Docker is running
-- Kafka infrastructure starts successfully
-- `outputs/offline_adapter_test/rf_anomaly.joblib` exists
-- `data/samples/signature_merged_predictions.csv` exists
-- Demo PCAP files exist under `data/samples/pcap/`
-- Gateway starts on port `8000`
-- Webhook receiver starts on port `9001`
-- Spark processor is running visibly in its own terminal
-- Alert Delivery is running visibly in its own terminal
-- Tenant alert page opens in the browser
-
-## Additional Documentation
-
-Main operator docs:
+Additional documentation:
 
 - `docs/DEMO_RUNBOOK.md`
 - `scripts/README.md`
 - `docs/PROTOTYPE_ARCHITECTURE.md`
-
-## Notes for Contributors
-
-- Keep reusable source code under `src/nidsaas/`.
-- Keep service code under `services/`.
-- Keep runnable entry points under `scripts/`.
-- Keep generated outputs under `outputs/`.
-- Keep large raw datasets and generated model artifacts untracked.
-- The old flat script wrappers were removed. Use the organized scripts under `scripts/demo/`, `scripts/test/`, `scripts/debug/`, and `scripts/offline/`.

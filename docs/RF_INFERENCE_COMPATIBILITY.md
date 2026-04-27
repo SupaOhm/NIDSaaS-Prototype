@@ -107,8 +107,8 @@ Adapter behavior:
 - Runs `preprocessor -> svd -> rff -> RF predict_proba` and computes anomaly scores/predictions using saved threshold.
 
 Important:
-- This adapter supports **CICFlowMeter-compatible flow CSV only**.
-- It does **not** make tshark fallback output schema compatible.
+- This adapter supports **CICFlowMeter-compatible flow CSV input**.
+- The tshark flow extractor is used for rule-based runtime evidence; saved RF inference uses the CICFlowMeter-compatible CSV contract.
 
 ## 5) Do We Need CICFlowMeter Instead of tshark?
 
@@ -116,15 +116,15 @@ For this saved RF model: **Yes, effectively** (or an equivalent feature-engineer
 
 Practical conclusion:
 - To run this artifact on live uploads, the extraction path must provide CICFlowMeter-compatible features (and column names), including handling header variants such as duplicated `Fwd Header Length` vs `Fwd Header Length.1`.
-- Current tshark fallback alone is insufficient.
+- Use direct CSV upload or a CICFlowMeter-compatible extraction path for saved RF inference.
 
 Quick usage:
 
 ```bash
-python3 scripts/test/test_rf_inference_csv.py data/samples/csv/cic_benign_sample.csv
-python3 scripts/test/test_rf_inference_csv.py data/samples/csv/cic_ddos_sample.csv
+python3 scripts/test/test_rf_inference_csv.py data/samples/csv/benign.csv
+python3 scripts/test/test_rf_inference_csv.py data/samples/csv/ddos.csv
 ```
 
 ## 6) Runtime-Behavior Change Status
 
-Runtime service behavior is unchanged. The new adapter/CLI provide an explicit inference-only entry point for saved RF artifacts on compatible CSVs.
+The adapter and CLI provide an explicit inference-only entry point for saved RF artifacts on compatible CSVs.

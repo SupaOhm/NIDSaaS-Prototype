@@ -1,1 +1,1 @@
-"""NIDSaaS prototype package."""
+"""NIDSaaS prototype implementation package."""

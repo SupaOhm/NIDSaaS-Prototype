@@ -13,7 +13,7 @@ if ! curl -sS --connect-timeout 5 --max-time 10 "${BASE_URL}/" >/dev/null; then
   exit 1
 fi
 
-echo "[TEST] posting fake alert directly to ${URL}"
+echo "[TEST] posting sample alert directly to ${URL}"
 curl -sS --connect-timeout 5 --max-time 20 \
   -X POST "$URL" \
   -H "Content-Type: application/json" \

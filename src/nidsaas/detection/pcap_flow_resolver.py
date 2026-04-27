@@ -1,8 +1,8 @@
-"""Resolve CIC-IDS2017 PCAP names to pre-extracted CICFlowMeter CSVs.
+"""Resolve CIC-IDS2017 PCAP names to matching CICFlowMeter CSVs.
 
-Live CICFlowMeter extraction is not part of the current demo runtime. This
-resolver bridges a real CIC PCAP upload to the corresponding checked-in
-CICFlowMeter CSV so Spark can use real flow labels and saved IDS evidence.
+The local demo supports direct CSV upload and PCAP upload. For CIC-IDS2017 PCAP
+uploads, this resolver maps known sample names to the corresponding flow CSV so
+Spark can run saved RF inference on CICFlowMeter-compatible features.
 """
 
 from __future__ import annotations

@@ -1,6 +1,6 @@
 # Spark Stream
 
-This service proves the Kafka -> Spark portion of the NIDSaaS prototype. It reads gateway upload events from Kafka topics matching `raw.tenant.*`, parses each JSON payload, and prints normalized upload records with Kafka metadata.
+This service runs the Spark Structured Streaming stage of the NIDSaaS prototype. It reads gateway upload events from Kafka topics matching `raw.tenant.*`, parses each JSON payload, runs the configured detection path, and publishes attack alerts to tenant-scoped Kafka alert topics.
 
 Run it through Docker after Kafka is running:
 
@@ -16,10 +16,10 @@ Defaults:
 
 The gateway still runs locally and publishes to host Kafka at `localhost:9092`. Spark runs in Docker and reads Kafka at the internal Compose address `kafka:29092`.
 
-The current demo path calls the IDS demo inference adapter backed by
-`outputs/offline_adapter_test` artifacts and dispatches alerts to the webhook
-receiver.
+The demo path uses saved IDS/RF artifacts from `outputs/offline_adapter_test`.
+For uploaded CICFlowMeter CSV files, Spark runs saved RF inference directly.
+For PCAP uploads, Spark resolves matching CICFlowMeter CSV evidence when
+available and uses live flow extraction as the runtime fallback path.
 
-For CIC-IDS2017 PCAP uploads, Spark resolves the uploaded PCAP name to an
-existing pre-extracted CICFlowMeter CSV under `data/csv/csv_CIC_IDS2017`.
-Live CICFlowMeter extraction is not implemented in this demo path.
+Attack results are published to `alert.tenant.<tenant_id>` for delivery by
+`services/alert_delivery/`.

@@ -1,1 +1,1 @@
-"""Spark streaming service placeholder."""
+"""Spark streaming processor service package."""

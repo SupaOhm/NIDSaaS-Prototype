@@ -4,14 +4,14 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$REPO_ROOT"
 
-SAMPLE_FILE="data/samples/pcap/cic_benign_sample.pcap"
+SAMPLE_FILE="data/samples/pcap/benign.pcap"
 TENANT_ID="${TENANT_ID:-tenant_A}"
 SOURCE_ID="${SOURCE_ID:-source_duplicate_$$_$(date -u +"%Y%m%dT%H%M%SZ")}"
 GATEWAY_URL="${GATEWAY_BASE_URL:-http://localhost:8000}"
 API_KEY="${GATEWAY_API_KEY:-dev-secret}"
 if [[ ! -f "$SAMPLE_FILE" ]]; then
   echo "[TEST] Missing demo PCAP sample: ${SAMPLE_FILE}" >&2
-  echo "[TEST] Create samples with: ./scripts/test/create_cic_pcap_samples.sh" >&2
+  echo "[TEST] Place demo samples under data/samples/pcap/ or run the sample-generation scripts." >&2
   exit 1
 fi
 

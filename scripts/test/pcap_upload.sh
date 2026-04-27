@@ -19,12 +19,10 @@ usage() {
   cat <<'USAGE'
 Usage:
   ./scripts/test/pcap_upload.sh --csv -d data/samples/csv/ddos.csv -t tenant_A
-  ./scripts/test/pcap_upload.sh -d data/samples/pcap/cic_attack_sample.pcap -t tenant_A
-  ./scripts/test/pcap_upload.sh -d data/samples/pcap/cic_ddos_sample.pcap -t tenant_A
-  ./scripts/test/pcap_upload.sh -d data/samples/pcap/cic_portscan_sample.pcap -t tenant_A
-  ./scripts/test/pcap_upload.sh -d data/samples/pcap/cic_webattack_sample.pcap -t tenant_A
-  ./scripts/test/pcap_upload.sh -d data/samples/pcap/cic_benign_sample.pcap -t tenant_A
-  ./scripts/test/pcap_upload.sh --path data/samples/pcap/cic_benign_sample.pcap --tenant tenant_B
+  ./scripts/test/pcap_upload.sh --csv -d data/samples/csv/benign.csv -t tenant_A
+  ./scripts/test/pcap_upload.sh -d data/samples/pcap/ddos.pcap -t tenant_A
+  ./scripts/test/pcap_upload.sh -d data/samples/pcap/benign.pcap -t tenant_A
+  ./scripts/test/pcap_upload.sh --path data/samples/pcap/benign.pcap --tenant tenant_B
 
 Options:
   --csv               upload CICFlowMeter-compatible CSV to /upload-flow-csv

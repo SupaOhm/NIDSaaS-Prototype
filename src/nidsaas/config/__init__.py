@@ -1,1 +1,1 @@
-"""Configuration package for future service-level settings."""
+"""Configuration package for service-level settings."""

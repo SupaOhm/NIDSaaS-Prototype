@@ -1,1 +1,1 @@
-"""Gateway service placeholder."""
+"""Gateway upload service package."""

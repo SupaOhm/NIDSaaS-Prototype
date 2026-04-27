@@ -1,1 +1,1 @@
-"""Alert dispatcher service placeholder."""
+"""Alert dispatch helper package."""

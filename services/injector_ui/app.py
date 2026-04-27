@@ -20,8 +20,8 @@ GATEWAY_BASE_URL = os.getenv("GATEWAY_BASE_URL", "http://localhost:8000")
 GATEWAY_API_KEY = os.getenv("GATEWAY_API_KEY", "dev-secret")
 WEBHOOK_BASE_URL = os.getenv("WEBHOOK_BASE_URL", "http://localhost:9001")
 KAFKA_UI_URL = os.getenv("KAFKA_UI_URL", "http://localhost:8080")
-ATTACK_SAMPLE = Path("data/samples/pcap/cic_attack_sample.pcap")
-BENIGN_SAMPLE = Path("data/samples/pcap/cic_benign_sample.pcap")
+ATTACK_SAMPLE = Path("data/samples/pcap/ddos.pcap")
+BENIGN_SAMPLE = Path("data/samples/pcap/benign.pcap")
 
 app = FastAPI(title="NIDSaaS Tenant Portal")
 

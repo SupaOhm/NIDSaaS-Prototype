@@ -1,11 +1,8 @@
-"""Demo IDS inference adapter backed by existing offline cascade artifacts.
+"""Demo IDS inference adapter backed by saved offline cascade artifacts.
 
-This is intentionally not a true per-upload online inference implementation.
-The current IDS codebase can train/evaluate the offline cascade and save model
-artifacts, but it does not yet expose a stable inference-only API that accepts
-a new extracted flow CSV and scores it without retraining. For the live demo,
-this adapter proves integration with real saved IDS outputs while avoiding the
-full offline cascade in Spark.
+This adapter provides deterministic presentation-time inference from saved
+artifact outputs and matched CICFlowMeter evidence. The Spark RF flow CSV path
+uses ``rf_inference_adapter`` for direct inference on compatible flow files.
 """
 
 from __future__ import annotations

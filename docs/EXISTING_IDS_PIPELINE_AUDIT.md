@@ -47,12 +47,11 @@ The expected format is CICFlowMeter/CIC-IDS2017 style flow records. Required or 
 
 Column names are canonicalized in `src/nidsaas/detection/utils.py`. Example mappings include `Flow Duration -> flow_duration`, `Destination Port -> destination_port`, and `Label -> label`.
 
-Raw PCAP support:
+Raw PCAP handling:
 
-- The main offline IDS pipeline does not accept PCAP directly.
-- CICFlowMeter is not implemented in this repository.
-- CICFlowMeter or equivalent PCAP-to-flow extraction is external/assumed.
-- The repository contains Snort helpers that can run external Snort on PCAP, but that is separate from the main cascade entry point.
+- The main offline IDS pipeline consumes CICFlowMeter-style flow CSV files.
+- CICFlowMeter or equivalent PCAP-to-flow extraction is treated as an external preprocessing step for offline experiments.
+- The repository contains Snort helpers that can run external Snort on PCAP for signature-related experiments.
 
 ## C. Snort Integration
 
@@ -246,15 +245,15 @@ The adapter is intentionally a thin wrapper around `run_cascade()`. It returns a
 
 Better long-term adapter:
 
-- Add an inference-only adapter that loads saved `rf_anomaly.joblib`, `conformal_wrapper.joblib`, and `escalation_gate_fastsnort.joblib`, accepts already-cleaned flow rows, and emits predictions without retraining.
-- Kafka messages should eventually include both:
+- The inference adapter loads saved `rf_anomaly.joblib`, accepts compatible flow CSV rows, and emits predictions without retraining.
+- Kafka messages include:
   - `pcap_file_path`: original uploaded file path.
-  - `flow_csv_path`: path produced by PCAP-to-flow extraction.
-- The IDS adapter should consume `flow_csv_path`, not the raw PCAP path.
+  - `flow_csv_path`: resolved or uploaded flow CSV path when available.
+- The RF adapter consumes CICFlowMeter-compatible flow CSV files.
 
-Honest current-state summary:
+Implementation summary:
 
-- Raw PCAP is not supported by the main offline IDS pipeline.
-- CICFlowMeter is external/assumed and not implemented here.
-- Snort execution exists as helper utilities but is not invoked by `scripts/offline/run_pipeline.py`.
+- The offline IDS pipeline consumes prepared flow CSV data.
+- CICFlowMeter is used as an external flow extraction format for CIC-IDS2017 experiments.
+- Snort execution exists as helper utilities for signature experiments.
 - The default cascade uses precomputed row-level signature predictions keyed by `row_id`.

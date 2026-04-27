@@ -1,1 +1,1 @@
-"""Injector UI service placeholder."""
+"""Auxiliary injector UI service package."""
