@@ -17,7 +17,7 @@ PCAP or CICFlowMeter CSV upload
 -> Webhook Alert UI
 ```
 
-The recommended evaluator path is the RF Flow CSV demo mode. It uploads real CICFlowMeter-compatible CIC-IDS2017 flow CSV files through the Gateway and runs the saved RF inference adapter inside Spark.
+The recommended evaluator path is the RF Flow CSV mode. It uploads a user-provided CICFlowMeter-compatible CIC-IDS2017 CSV file through the Gateway and runs the saved RF inference adapter inside Spark.
 
 ## Repository Structure
 
@@ -28,12 +28,10 @@ The recommended evaluator path is the RF Flow CSV demo mode. It uploads real CIC
 ├── docker-compose.yml
 ├── docker/spark/Dockerfile
 ├── data/
-│   ├── csv/                  # local CIC-IDS2017 CSV data
-│   ├── pcap/                 # local CIC-IDS2017 PCAP data
-│   ├── samples/csv/          # small demo flow CSV samples
-│   └── samples/pcap/         # small demo PCAP samples
+│   ├── raw/CIC-IDS2017/      # placeholder for downloaded CIC-IDS2017 CSV files
+│   └── samples/              # optional small smoke-test samples
 ├── outputs/
-│   └── offline_adapter_test/ # saved RF/IDS artifacts
+│   └── ...                   # generated runtime outputs and model artifacts
 ├── services/
 │   ├── gateway/              # FastAPI upload gateway
 │   ├── spark_stream/         # Spark upload-event processor
@@ -73,27 +71,25 @@ git --version
 curl --version
 ```
 
-## Required Local Data and Artifacts
+## Dataset
 
-Large CIC datasets and generated model artifacts are kept outside normal source control. For evaluation, place the provided data/artifact files at these paths before running the full demo:
+The full CIC-IDS2017 dataset is not included in this repository because of size. Download the official CIC-IDS2017 `MachineLearningCSV` dataset from the original Canadian Institute for Cybersecurity provider.
 
-```text
-outputs/offline_adapter_test/rf_anomaly.joblib
-data/samples/csv/benign.csv
-data/samples/csv/ddos.csv
-```
-
-Recommended additional files:
+Place the downloaded CSV files in the dataset placeholder directory:
 
 ```text
-outputs/offline_adapter_test/
-data/csv/csv_CIC_IDS2017/Friday-WorkingHours-Afternoon-DDos.pcap_ISCX.csv
-data/samples/pcap/benign.pcap
-data/samples/pcap/ddos.pcap
-data/samples/signature_merged_predictions.csv
+data/raw/CIC-IDS2017/
 ```
 
-The small CSV samples are enough for the main RF Flow CSV demo. The full CIC CSV path is used for larger validation.
+The pipeline accepts a user-provided dataset path. Evaluators may either place the dataset in `data/raw/CIC-IDS2017/` or provide their own path when running the upload or offline pipeline commands.
+
+The upload script accepts one CSV file per command:
+
+```bash
+./scripts/test/pcap_upload.sh --csv -d <path-to-cic-csv-file> -t tenant_A
+```
+
+A small sample file is provided only for quick pipeline verification. Full evaluation should use the CIC-IDS2017 MachineLearningCSV dataset.
 
 ## Setup
 
@@ -178,31 +174,30 @@ Alert Delivery subscribes to:
 alert.tenant.*
 ```
 
-### Terminal 5: Upload Test Data
+### Terminal 5: Upload a CICFlowMeter CSV
 
-Recommended RF Flow CSV attack upload:
+Upload one CICFlowMeter-compatible CSV file:
 
 ```bash
-./scripts/test/pcap_upload.sh --csv -d data/samples/csv/ddos.csv -t tenant_A
+./scripts/test/pcap_upload.sh --csv -d <path-to-cic-csv-file> -t tenant_A
 ```
 
-Recommended benign upload:
+For example, if the dataset is placed in the placeholder directory:
 
 ```bash
-./scripts/test/pcap_upload.sh --csv -d data/samples/csv/benign.csv -t tenant_A
+./scripts/test/pcap_upload.sh --csv -d data/raw/CIC-IDS2017/<csv-file-name>.csv -t tenant_A
 ```
 
-Full CIC-IDS2017 CSV upload:
+Optional quick pipeline verification with a bundled sample file:
 
 ```bash
-./scripts/test/pcap_upload.sh --csv -d data/csv/csv_CIC_IDS2017/Friday-WorkingHours-Afternoon-DDos.pcap_ISCX.csv -t tenant_A
+./scripts/test/pcap_upload.sh --csv -d <path-to-sample-csv-file> -t tenant_A
 ```
 
 PCAP upload mode is also available:
 
 ```bash
-./scripts/test/pcap_upload.sh -d data/samples/pcap/ddos.pcap -t tenant_A
-./scripts/test/pcap_upload.sh -d data/samples/pcap/benign.pcap -t tenant_A
+./scripts/test/pcap_upload.sh -d <path-to-pcap-file> -t tenant_A
 ```
 
 Open the tenant alert page:
@@ -238,22 +233,22 @@ This reports Docker containers, local services, ports, Kafka topics, Spark/Alert
 Host Python:
 
 ```bash
-.venv/bin/python scripts/test/test_rf_inference_csv.py data/samples/csv/ddos.csv
+.venv/bin/python scripts/test/test_rf_inference_csv.py <path-to-cic-csv-file>
 ```
 
 Spark container:
 
 ```bash
-docker compose run --rm spark python3 scripts/test/test_rf_inference_csv.py data/samples/csv/ddos.csv
+docker compose run --rm spark python3 scripts/test/test_rf_inference_csv.py <path-to-cic-csv-file>
 ```
 
-Expected fields for the DDoS CSV:
+Expected fields for a compatible CICFlowMeter CSV:
 
 ```text
 status="success"
 rows_scored > 0
-prediction="attack"
-attack_ratio >= 0.20
+prediction="attack" or prediction="benign"
+attack_ratio is reported
 ```
 
 ### 3. End-to-End Alert Test
@@ -261,7 +256,7 @@ attack_ratio >= 0.20
 With infrastructure, services, Spark, and Alert Delivery running:
 
 ```bash
-./scripts/test/test_flow_csv_rf_alert.sh data/samples/csv/ddos.csv
+./scripts/test/pcap_upload.sh --csv -d <path-to-cic-csv-file> -t tenant_A
 ```
 
 Expected Spark log pattern:
@@ -357,11 +352,9 @@ CLEAR_LOGS=1 ./scripts/demo/reset_demo_state.sh
 
 The reset script preserves:
 
-- `outputs/offline_adapter_test/`
 - trained model artifacts
-- `data/csv/`
-- `data/pcap/`
-- `data/samples/`
+- downloaded datasets under `data/raw/`
+- optional sample files under `data/samples/`
 
 ## Stopping the System
 
@@ -389,7 +382,7 @@ The repository also includes the offline IDS experiment pipeline. Run it when re
 
 ```bash
 python scripts/offline/run_pipeline.py \
-  --data-dir data/csv/csv_CIC_IDS2017 \
+  --data-dir <path-to-cic-dataset-folder> \
   --snort-predictions data/samples/signature_merged_predictions.csv \
   --output-dir outputs/proposed_locked_a20_g50 \
   --alpha-escalate 0.20 \
@@ -526,7 +519,7 @@ This is expected replay-protection behavior. Reset demo state when repeating the
 Run the same RF check inside the Spark container:
 
 ```bash
-docker compose run --rm spark python3 scripts/test/test_rf_inference_csv.py data/samples/csv/ddos.csv
+docker compose run --rm spark python3 scripts/test/test_rf_inference_csv.py <path-to-cic-csv-file>
 ```
 
 The JSON output includes diagnostic fields:

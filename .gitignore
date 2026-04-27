@@ -30,6 +30,19 @@ logs/
 *.tmp
 *.bak
 
+# Local data root. Keep placeholder/sample directories visible while ignoring
+# downloaded datasets and runtime uploads.
+data/*
+!data/raw/
+!data/raw/.gitkeep
+!data/raw/CIC-IDS2017/
+!data/raw/CIC-IDS2017/.gitkeep
+!data/samples/
+!data/samples/pcap/
+!data/samples/csv/
+!data/samples/pcap/*.pcap
+!data/samples/csv/*.csv
+
 # Gateway local uploads
 data/uploads/
 
@@ -43,6 +56,8 @@ outputs/
 *.onnx
 
 # Large local datasets
+data/raw/CIC-IDS2017/*
+!data/raw/CIC-IDS2017/.gitkeep
 data/csv/**/*.csv
 data/pcap/**/*
 *.pcap
@@ -52,12 +67,6 @@ data/pcap/**/*
 # Local cached/sample data can be large; keep it out of Git unless a tiny
 # fixture is intentionally added with a more specific negation rule.
 data/samples/*.csv
-!data/samples/
-!data/samples/pcap/
-!data/samples/csv/
-!data/samples/pcap/*.pcap
-!data/samples/csv/*.csv
 
-# Local generated demo/debug files
-data/
+# Local generated debug files
 src/debug/

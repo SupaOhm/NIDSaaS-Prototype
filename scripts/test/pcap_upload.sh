@@ -18,11 +18,8 @@ API_KEY="${GATEWAY_API_KEY:-dev-secret}"
 usage() {
   cat <<'USAGE'
 Usage:
-  ./scripts/test/pcap_upload.sh --csv -d data/samples/csv/ddos.csv -t tenant_A
-  ./scripts/test/pcap_upload.sh --csv -d data/samples/csv/benign.csv -t tenant_A
-  ./scripts/test/pcap_upload.sh -d data/samples/pcap/ddos.pcap -t tenant_A
-  ./scripts/test/pcap_upload.sh -d data/samples/pcap/benign.pcap -t tenant_A
-  ./scripts/test/pcap_upload.sh --path data/samples/pcap/benign.pcap --tenant tenant_B
+  ./scripts/test/pcap_upload.sh --csv -d <path-to-cic-csv-file> -t tenant_A
+  ./scripts/test/pcap_upload.sh -d <path-to-pcap-file> -t tenant_A
 
 Options:
   --csv               upload CICFlowMeter-compatible CSV to /upload-flow-csv
