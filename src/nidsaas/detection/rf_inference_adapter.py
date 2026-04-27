@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 from pathlib import Path
+import sys
 from typing import Any
+import warnings
 
 import joblib
 import numpy as np
@@ -21,6 +23,39 @@ REQUIRED_ARTIFACT_KEYS = {
 }
 
 
+def _install_numpy_core_pickle_aliases() -> None:
+    """Allow NumPy 2.x pickles to load on older NumPy runtimes.
+
+    The saved demo artifact was produced with NumPy 2.x, whose pickles can
+    reference ``numpy._core``. The Spark image may run an older NumPy that only
+    exposes ``numpy.core``. This keeps inference working without retraining.
+    """
+    if "numpy._core" in sys.modules:
+        return
+
+    try:
+        import numpy.core as numpy_core
+    except Exception:
+        return
+
+    sys.modules.setdefault("numpy._core", numpy_core)
+    for name in ("multiarray", "numeric", "fromnumeric", "shape_base", "umath", "overrides"):
+        try:
+            module = __import__(f"numpy.core.{name}", fromlist=["*"])
+        except Exception:
+            continue
+        sys.modules.setdefault(f"numpy._core.{name}", module)
+
+
+def _patch_loaded_artifact_for_runtime(payload: dict[str, Any]) -> None:
+    """Patch minor sklearn pickle attribute drift for inference-only demo use."""
+    preprocessor = payload.get("preprocessor")
+    if preprocessor is not None and not hasattr(preprocessor, "_name_to_fitted_passthrough"):
+        # sklearn 1.3 expects this fitted attribute, while the saved 1.8
+        # ColumnTransformer pickle may not carry it in older runtimes.
+        setattr(preprocessor, "_name_to_fitted_passthrough", {})
+
+
 def _error_result(
     flow_csv_path: str,
     feature_count: int,
@@ -28,10 +63,24 @@ def _error_result(
     threshold: float | None,
     file_attack_ratio_threshold: float,
     message: str,
+    *,
+    input_file_exists: bool | None = None,
+    input_file_size_bytes: int | None = None,
+    raw_rows_loaded: int = 0,
+    rows_after_cleanup: int = 0,
 ) -> dict[str, Any]:
+    csv_path = Path(flow_csv_path)
+    if input_file_exists is None:
+        input_file_exists = csv_path.exists()
+    if input_file_size_bytes is None:
+        input_file_size_bytes = csv_path.stat().st_size if input_file_exists else 0
     return {
         "status": "error",
         "flow_csv_path": flow_csv_path,
+        "input_file_exists": bool(input_file_exists),
+        "input_file_size_bytes": int(input_file_size_bytes),
+        "raw_rows_loaded": int(raw_rows_loaded),
+        "rows_after_cleanup": int(rows_after_cleanup),
         "rows_scored": 0,
         "attack_ratio": 0.0,
         "file_attack_ratio_threshold": float(file_attack_ratio_threshold),
@@ -111,6 +160,9 @@ def run_rf_inference_on_flow_csv(
     This adapter never calls fit() and does not retrain any model components.
     """
     csv_path = Path(flow_csv_path)
+    input_file_exists = csv_path.exists()
+    input_file_size_bytes = csv_path.stat().st_size if input_file_exists else 0
+
     if not csv_path.exists():
         return _error_result(
             flow_csv_path=flow_csv_path,
@@ -119,6 +171,8 @@ def run_rf_inference_on_flow_csv(
             threshold=None,
             file_attack_ratio_threshold=file_attack_ratio_threshold,
             message=f"flow CSV not found: {flow_csv_path}",
+            input_file_exists=input_file_exists,
+            input_file_size_bytes=input_file_size_bytes,
         )
 
     if file_attack_ratio_threshold < 0.0 or file_attack_ratio_threshold > 1.0:
@@ -132,7 +186,14 @@ def run_rf_inference_on_flow_csv(
         )
 
     try:
-        payload = joblib.load(artifact_path)
+        _install_numpy_core_pickle_aliases()
+        with warnings.catch_warnings():
+            warnings.filterwarnings(
+                "ignore",
+                message="Trying to unpickle estimator .*",
+                category=UserWarning,
+            )
+            payload = joblib.load(artifact_path)
     except Exception as exc:
         return _error_result(
             flow_csv_path=flow_csv_path,
@@ -153,6 +214,7 @@ def run_rf_inference_on_flow_csv(
             file_attack_ratio_threshold=file_attack_ratio_threshold,
             message=f"invalid artifact: {validation_error}",
         )
+    _patch_loaded_artifact_for_runtime(validated)
 
     feature_columns = validated["feature_columns"]
     threshold = float(validated["threshold"])
@@ -179,7 +241,11 @@ def run_rf_inference_on_flow_csv(
             threshold=threshold,
             file_attack_ratio_threshold=file_attack_ratio_threshold,
             message=f"failed to read CSV: {exc}",
+            input_file_exists=input_file_exists,
+            input_file_size_bytes=input_file_size_bytes,
         )
+
+    raw_rows_loaded = int(len(df))
 
     if max_rows is not None:
         if max_rows <= 0:
@@ -190,6 +256,9 @@ def run_rf_inference_on_flow_csv(
                 threshold=threshold,
                 file_attack_ratio_threshold=file_attack_ratio_threshold,
                 message="max_rows must be positive when provided",
+                input_file_exists=input_file_exists,
+                input_file_size_bytes=input_file_size_bytes,
+                raw_rows_loaded=raw_rows_loaded,
             )
         df = df.head(max_rows).copy()
 
@@ -201,10 +270,14 @@ def run_rf_inference_on_flow_csv(
             threshold=threshold,
             file_attack_ratio_threshold=file_attack_ratio_threshold,
             message="input CSV has no data rows",
+            input_file_exists=input_file_exists,
+            input_file_size_bytes=input_file_size_bytes,
+            raw_rows_loaded=raw_rows_loaded,
         )
 
     df = canonicalize_columns(df)
     df = df.replace([np.inf, -np.inf], np.nan)
+    rows_after_cleanup = int(len(df))
 
     # Handle common CICFlowMeter header variants where duplicated headers may be absent.
     if "Fwd Header Length.1" not in df.columns and "Fwd Header Length" in df.columns:
@@ -219,6 +292,10 @@ def run_rf_inference_on_flow_csv(
             threshold=threshold,
             file_attack_ratio_threshold=file_attack_ratio_threshold,
             message="required CICFlowMeter-compatible feature columns are missing",
+            input_file_exists=input_file_exists,
+            input_file_size_bytes=input_file_size_bytes,
+            raw_rows_loaded=raw_rows_loaded,
+            rows_after_cleanup=rows_after_cleanup,
         )
 
     try:
@@ -239,11 +316,29 @@ def run_rf_inference_on_flow_csv(
             threshold=threshold,
             file_attack_ratio_threshold=file_attack_ratio_threshold,
             message=f"inference failed: {exc}",
+            input_file_exists=input_file_exists,
+            input_file_size_bytes=input_file_size_bytes,
+            raw_rows_loaded=raw_rows_loaded,
+            rows_after_cleanup=rows_after_cleanup,
         )
 
     preds = (scores > threshold).astype(int)
 
     rows_scored = int(len(scores))
+    if rows_scored <= 0:
+        return _error_result(
+            flow_csv_path=flow_csv_path,
+            feature_count=len(feature_columns),
+            missing_columns=[],
+            threshold=threshold,
+            file_attack_ratio_threshold=file_attack_ratio_threshold,
+            message="inference produced zero scored rows",
+            input_file_exists=input_file_exists,
+            input_file_size_bytes=input_file_size_bytes,
+            raw_rows_loaded=raw_rows_loaded,
+            rows_after_cleanup=rows_after_cleanup,
+        )
+
     attack_count = int(preds.sum())
     benign_count = int(rows_scored - attack_count)
     attack_ratio = float(attack_count / rows_scored) if rows_scored else 0.0
@@ -254,6 +349,10 @@ def run_rf_inference_on_flow_csv(
     return {
         "status": "success",
         "flow_csv_path": str(csv_path),
+        "input_file_exists": True,
+        "input_file_size_bytes": input_file_size_bytes,
+        "raw_rows_loaded": raw_rows_loaded,
+        "rows_after_cleanup": rows_after_cleanup,
         "rows_scored": rows_scored,
         "attack_ratio": attack_ratio,
         "file_attack_ratio_threshold": float(file_attack_ratio_threshold),

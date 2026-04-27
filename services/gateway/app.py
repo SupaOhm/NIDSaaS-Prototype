@@ -1,4 +1,4 @@
-"""FastAPI gateway for tenant PCAP uploads."""
+"""FastAPI gateway for tenant PCAP and flow CSV uploads."""
 
 from __future__ import annotations
 
@@ -36,6 +36,10 @@ def _safe_filename(filename: str | None, batch_hash: str) -> str:
     base = Path(filename or "upload.pcap").name
     cleaned = re.sub(r"[^A-Za-z0-9_.-]+", "_", base) or "upload.pcap"
     return f"{batch_hash[:12]}_{cleaned}"
+
+
+def _auto_epoch(prefix: str) -> str:
+    return f"{prefix}_{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}"
 
 
 @app.get("/health")
@@ -128,6 +132,92 @@ async def upload_pcap(
     }
 
     print("[GATEWAY] forwarded batch", flush=True)
+    published = publisher.publish(topic, event)
+
+    return {
+        "status": "accepted",
+        "decision": dedupe_decision.decision,
+        "batch_hash": batch_hash,
+        "content_hash": content_hash,
+        "topic": topic,
+        "event": event,
+        "published": published,
+    }
+
+
+@app.post("/upload-flow-csv")
+async def upload_flow_csv(
+    tenant_id: str = Form(...),
+    source_id: str = Form("source_1"),
+    file_epoch: str | None = Form(None),
+    file: UploadFile = File(...),
+    x_api_key: str = Header(...),
+) -> dict:
+    if x_api_key != API_KEY:
+        raise HTTPException(status_code=401, detail="invalid api key")
+
+    tenant_safe = _safe_part(tenant_id)
+    source_safe = _safe_part(source_id)
+    effective_epoch = file_epoch or _auto_epoch("flow_csv")
+
+    payload = await file.read()
+    if not payload:
+        raise HTTPException(status_code=400, detail="uploaded CSV is empty")
+
+    content_hash = hashlib.sha256(payload).hexdigest()
+    batch_hash = content_hash
+    start_offset = 0
+    end_offset = len(payload)
+
+    dedupe_decision = deduper.evaluate(
+        tenant_id=tenant_id,
+        source_id=source_id,
+        file_epoch=effective_epoch,
+        start_offset=start_offset,
+        end_offset=end_offset,
+        batch_hash=batch_hash,
+        content_hash=content_hash,
+    )
+
+    if not dedupe_decision.should_forward:
+        if dedupe_decision.decision == "drop_duplicate":
+            print("[GATEWAY] dropped duplicate flow CSV", flush=True)
+        else:
+            print(f"[GATEWAY] flow CSV {dedupe_decision.decision}", flush=True)
+        return {
+            "status": "dropped",
+            "decision": dedupe_decision.decision,
+            "tenant_id": tenant_id,
+            "source_id": source_id,
+            "file_epoch": effective_epoch,
+            "file_type": "flow_csv",
+            "original_filename": file.filename,
+            "batch_hash": batch_hash,
+            "content_hash": content_hash,
+            "reason": dedupe_decision.reason,
+            "published": False,
+        }
+
+    upload_dir = UPLOAD_ROOT / tenant_safe / source_safe
+    upload_dir.mkdir(parents=True, exist_ok=True)
+    upload_path = upload_dir / _safe_filename(file.filename or "flow.csv", batch_hash)
+    upload_path.write_bytes(payload)
+
+    topic = f"raw.tenant.{tenant_id}"
+    event = {
+        "tenant_id": tenant_id,
+        "source_id": source_id,
+        "file_epoch": effective_epoch,
+        "file_path": str(upload_path),
+        "file_type": "flow_csv",
+        "original_filename": file.filename,
+        "batch_hash": batch_hash,
+        "content_hash": content_hash,
+        "decision": dedupe_decision.decision,
+        "upload_time": datetime.now(timezone.utc).isoformat(),
+    }
+
+    print("[GATEWAY] forwarded flow CSV", flush=True)
     published = publisher.publish(topic, event)
 
     return {

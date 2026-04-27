@@ -5,7 +5,7 @@ NIDSaaS Prototype is a research-to-prototype repository for Network Intrusion De
 The current demo shows a tenant-scoped IDS workflow:
 
 ```text
-PCAP Upload
+PCAP or Flow CSV Upload
 -> Gateway API
 -> Kafka raw.tenant.<tenant_id>
 -> Spark Structured Streaming
@@ -15,7 +15,7 @@ PCAP Upload
 -> Webhook Alert UI
 ```
 
-The demo uses real CIC-IDS2017 PCAP upload inputs, resolves them to pre-extracted CICFlowMeter CSV evidence when available, and uses saved IDS artifacts from `outputs/offline_adapter_test`. Full live CICFlowMeter extraction and full online IDS retraining are not part of the current presentation demo.
+The demo uses real CIC-IDS2017 PCAP upload inputs and direct CICFlowMeter CSV flow uploads. PCAP uploads resolve to pre-extracted CICFlowMeter CSV evidence when available, and CSV uploads go directly through saved RF inference. Full live CICFlowMeter extraction and full online IDS retraining are not part of the current presentation demo.
 
 ## Current Prototype Scope
 
@@ -239,6 +239,29 @@ View tenant alerts in the browser:
 
 ```text
 http://localhost:9001/alerts/tenant_A/view
+```
+
+## RF Flow CSV Demo Mode
+
+The saved RF model requires CICFlowMeter-compatible flow features. Full PCAP files are large, and live CICFlowMeter extraction is outside the short presentation path, so the demo supports direct upload of real CICFlowMeter CSV flows from CIC-IDS2017.
+
+This still exercises the real pipeline:
+
+```text
+CSV upload -> Gateway -> Kafka raw.tenant.<tenant_id> -> Spark -> saved RF inference -> Kafka alert.tenant.<tenant_id> -> Alert Delivery -> Webhook UI
+```
+
+Upload sample flow CSVs:
+
+```bash
+./scripts/test/pcap_upload.sh --csv -d data/samples/csv/benign.csv -t tenant_A
+./scripts/test/pcap_upload.sh --csv -d data/samples/csv/ddos.csv -t tenant_A
+```
+
+Upload a full local CIC-IDS2017 flow CSV:
+
+```bash
+./scripts/test/pcap_upload.sh --csv -d data/csv/csv_CIC_IDS2017/Friday-WorkingHours-Afternoon-DDos.pcap_ISCX.csv -t tenant_A
 ```
 
 ## Expected End-to-End Result

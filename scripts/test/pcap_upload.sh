@@ -5,6 +5,7 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$REPO_ROOT"
 
 PCAP_PATH=""
+UPLOAD_MODE="pcap"
 TENANT_ID="tenant_A"
 SOURCE_ID="source_1"
 FILE_EPOCH=""
@@ -17,6 +18,7 @@ API_KEY="${GATEWAY_API_KEY:-dev-secret}"
 usage() {
   cat <<'USAGE'
 Usage:
+  ./scripts/test/pcap_upload.sh --csv -d data/samples/csv/ddos.csv -t tenant_A
   ./scripts/test/pcap_upload.sh -d data/samples/pcap/cic_attack_sample.pcap -t tenant_A
   ./scripts/test/pcap_upload.sh -d data/samples/pcap/cic_ddos_sample.pcap -t tenant_A
   ./scripts/test/pcap_upload.sh -d data/samples/pcap/cic_portscan_sample.pcap -t tenant_A
@@ -25,7 +27,8 @@ Usage:
   ./scripts/test/pcap_upload.sh --path data/samples/pcap/cic_benign_sample.pcap --tenant tenant_B
 
 Options:
-  -d, --path          PCAP path to upload
+  --csv               upload CICFlowMeter-compatible CSV to /upload-flow-csv
+  -d, --path          file path to upload
   -t, --tenant        tenant_id, default tenant_A
   -s, --source        source_id, default source_1
   -e, --epoch         file_epoch, default auto timestamp
@@ -39,6 +42,10 @@ USAGE
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
+    --csv)
+      UPLOAD_MODE="flow_csv"
+      shift
+      ;;
     -d|--path)
       PCAP_PATH="${2:-}"
       shift 2
@@ -108,6 +115,13 @@ if [[ -z "$FILE_EPOCH" ]]; then
   FILE_EPOCH="cli_$(date -u +"%Y%m%dT%H%M%SZ")"
 fi
 
+if [[ "$UPLOAD_MODE" == "flow_csv" ]]; then
+  ENDPOINT="/upload-flow-csv"
+else
+  ENDPOINT="/upload-pcap"
+fi
+
+echo "[UPLOAD] mode: ${UPLOAD_MODE}"
 echo "[UPLOAD] file: ${PCAP_PATH}"
 echo "[UPLOAD] tenant_id: ${TENANT_ID}"
 echo "[UPLOAD] source_id: ${SOURCE_ID}"
@@ -115,14 +129,24 @@ echo "[UPLOAD] file_epoch: ${FILE_EPOCH}"
 echo "[UPLOAD] expected Kafka topic: raw.tenant.${TENANT_ID}"
 echo "[UPLOAD] gateway JSON response:"
 
-curl -sS --connect-timeout 5 --max-time 60 \
-  -X POST "${GATEWAY_URL%/}/upload-pcap" \
-  -H "x-api-key: ${API_KEY}" \
-  -F tenant_id="${TENANT_ID}" \
-  -F source_id="${SOURCE_ID}" \
-  -F file_epoch="${FILE_EPOCH}" \
-  -F start_offset="${START_OFFSET}" \
-  -F end_offset="${END_OFFSET}" \
-  -F file=@"${PCAP_PATH}"
+if [[ "$UPLOAD_MODE" == "flow_csv" ]]; then
+  curl -sS --connect-timeout 5 --max-time 60 \
+    -X POST "${GATEWAY_URL%/}${ENDPOINT}" \
+    -H "x-api-key: ${API_KEY}" \
+    -F tenant_id="${TENANT_ID}" \
+    -F source_id="${SOURCE_ID}" \
+    -F file_epoch="${FILE_EPOCH}" \
+    -F file=@"${PCAP_PATH}"
+else
+  curl -sS --connect-timeout 5 --max-time 60 \
+    -X POST "${GATEWAY_URL%/}${ENDPOINT}" \
+    -H "x-api-key: ${API_KEY}" \
+    -F tenant_id="${TENANT_ID}" \
+    -F source_id="${SOURCE_ID}" \
+    -F file_epoch="${FILE_EPOCH}" \
+    -F start_offset="${START_OFFSET}" \
+    -F end_offset="${END_OFFSET}" \
+    -F file=@"${PCAP_PATH}"
+fi
 
 printf '\n[UPLOAD] alert page URL: %s/alerts/%s/view\n' "$WEBHOOK_BASE_URL" "$TENANT_ID"

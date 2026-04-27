@@ -46,6 +46,12 @@ Upload attack:
 ./scripts/test/pcap_upload.sh -d data/samples/pcap/ddos.pcap -t tenant_A
 ```
 
+Upload RF flow CSV:
+
+```bash
+./scripts/test/pcap_upload.sh --csv -d data/samples/csv/ddos.csv -t tenant_A
+```
+
 View alerts:
 
 ```text
@@ -90,6 +96,8 @@ Terminal 4 - Upload/test:
   ./scripts/demo/reset_demo_state.sh
   ./scripts/test/pcap_upload.sh -d data/samples/pcap/benign.pcap -t tenant_A
   ./scripts/test/pcap_upload.sh -d data/samples/pcap/ddos.pcap -t tenant_A
+  ./scripts/test/pcap_upload.sh --csv -d data/samples/csv/benign.csv -t tenant_A
+  ./scripts/test/pcap_upload.sh --csv -d data/samples/csv/ddos.csv -t tenant_A
 ```
 
 ## Reset Commands
@@ -195,6 +203,12 @@ Direct webhook receiver check:
 ./scripts/test/test_webhook_direct.sh
 ```
 
+Flow CSV RF alert check:
+
+```bash
+./scripts/test/test_flow_csv_rf_alert.sh data/samples/csv/ddos.csv
+```
+
 RF inference smoke checks:
 
 ```bash
@@ -206,8 +220,9 @@ python3 scripts/test/test_rf_inference_csv.py data/samples/csv/ddos.csv
 
 Spark uses this order:
 
-1. Resolve uploaded PCAP to a CICFlowMeter-compatible CSV and run the saved RF artifact.
-2. If no matching CSV exists or RF scores zero rows, extract live flow-like features from the PCAP and use live flow rules.
+1. For `file_type=flow_csv`, run the saved RF artifact directly on the uploaded CICFlowMeter-compatible CSV.
+2. For PCAP uploads, resolve the PCAP to a CICFlowMeter-compatible CSV and run the saved RF artifact.
+3. If no matching CSV exists or PCAP RF scoring returns zero rows, extract live flow-like features from the PCAP and use live flow rules.
 
 The saved RF artifact path defaults to:
 

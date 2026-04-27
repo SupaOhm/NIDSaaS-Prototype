@@ -16,4 +16,6 @@ Terminal 4 - Upload/test:
   ./scripts/demo/reset_demo_state.sh
   ./scripts/test/pcap_upload.sh -d data/samples/pcap/benign.pcap -t tenant_A
   ./scripts/test/pcap_upload.sh -d data/samples/pcap/ddos.pcap -t tenant_A
+  ./scripts/test/pcap_upload.sh --csv -d data/samples/csv/benign.csv -t tenant_A
+  ./scripts/test/pcap_upload.sh --csv -d data/samples/csv/ddos.csv -t tenant_A
 COMMANDS

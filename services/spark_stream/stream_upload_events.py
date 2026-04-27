@@ -37,7 +37,10 @@ UPLOAD_EVENT_SCHEMA = StructType(
         StructField("end_offset", LongType(), True),
         StructField("effective_start_offset", LongType(), True),
         StructField("file_path", StringType(), True),
+        StructField("file_type", StringType(), True),
+        StructField("original_filename", StringType(), True),
         StructField("batch_hash", StringType(), True),
+        StructField("content_hash", StringType(), True),
         StructField("decision", StringType(), True),
         StructField("upload_time", StringType(), True),
     ]
@@ -68,7 +71,10 @@ def build_stream(spark: SparkSession, bootstrap_servers: str, topic_pattern: str
         col("event.end_offset").alias("end_offset"),
         col("event.effective_start_offset").alias("effective_start_offset"),
         col("event.file_path").alias("file_path"),
+        col("event.file_type").alias("file_type"),
+        col("event.original_filename").alias("original_filename"),
         col("event.batch_hash").alias("batch_hash"),
+        col("event.content_hash").alias("content_hash"),
         col("event.decision").alias("decision"),
         col("event.upload_time").alias("upload_time"),
         col("topic"),
@@ -90,9 +96,12 @@ def _build_alert(row, ids_result: dict) -> dict:
         {
             "file_path": file_path,
             "file_name": file_name,
+            "file_type": row["file_type"] or "pcap",
+            "original_filename": row["original_filename"],
             "kafka_topic": row["topic"],
             "kafka_offset": row["offset"],
             "batch_hash": row["batch_hash"],
+            "content_hash": row["content_hash"],
             "gateway_decision": row["decision"],
         }
     )
@@ -145,6 +154,20 @@ def _publish_alert_to_kafka(producer: KafkaProducer | None, tenant_id: str, aler
         return False
 
 
+def _log_rf_result(prefix: str, rf_result: dict) -> None:
+    print(
+        f"{prefix} status={rf_result.get('status', '')} "
+        f"input_file_exists={rf_result.get('input_file_exists', '')} "
+        f"input_file_size_bytes={rf_result.get('input_file_size_bytes', '')} "
+        f"raw_rows_loaded={rf_result.get('raw_rows_loaded', '')} "
+        f"rows_after_cleanup={rf_result.get('rows_after_cleanup', '')} "
+        f"rows_scored={rf_result.get('rows_scored', '')} "
+        f"missing_columns={rf_result.get('missing_columns', [])} "
+        f"error={rf_result.get('error', '')}",
+        flush=True,
+    )
+
+
 def print_batch(batch_df: DataFrame, batch_id: int) -> None:
     rows = batch_df.count()
     if rows == 0:
@@ -188,7 +211,10 @@ def print_batch(batch_df: DataFrame, batch_id: int) -> None:
         "tenant_id",
         "source_id",
         "file_path",
+        "file_type",
+        "original_filename",
         "batch_hash",
+        "content_hash",
         "decision",
         "topic",
         "offset",
@@ -196,22 +222,20 @@ def print_batch(batch_df: DataFrame, batch_id: int) -> None:
 
     for row in selected:
         file_path = row["file_path"] or ""
+        file_type = row["file_type"] or "pcap"
         file_name = Path(file_path).name
         print("[SPARK] preprocessing upload event", flush=True)
         print(
             f"[SPARK] normalized tenant_id={row['tenant_id']} "
             f"source_id={row['source_id']} file_name={file_name} "
-            f"gateway_decision={row['decision']}",
+            f"file_type={file_type} gateway_decision={row['decision']}",
             flush=True,
         )
-        print("[SPARK] resolving PCAP to CICFlowMeter CSV", flush=True)
-        resolver_result = resolve_pcap_to_flow_csv(file_path, csv_root=csv_root)
-        matched_flow_csv_path = str(resolver_result.get("flow_csv_path", "") or "")
 
-        if matched_flow_csv_path and Path(matched_flow_csv_path).exists():
-            print(f"[SPARK] using saved RF inference adapter: {matched_flow_csv_path}", flush=True)
+        if file_type == "flow_csv":
+            print("[SPARK] using uploaded flow CSV for saved RF inference", flush=True)
             rf_result = run_rf_inference_on_flow_csv(
-                flow_csv_path=matched_flow_csv_path,
+                flow_csv_path=file_path,
                 artifact_path=rf_artifact_path,
                 file_attack_ratio_threshold=rf_file_attack_ratio_threshold,
             )
@@ -221,29 +245,38 @@ def print_batch(batch_df: DataFrame, batch_id: int) -> None:
                 f"prediction={rf_result.get('prediction', 'benign')}",
                 flush=True,
             )
+            evidence = {
+                "original_flow_csv_path": file_path,
+                "evidence_source": "saved_rf_artifact_inference",
+                "rf_attack_ratio": rf_result.get("attack_ratio", 0.0),
+                "rf_file_attack_ratio_threshold": rf_result.get(
+                    "file_attack_ratio_threshold",
+                    rf_file_attack_ratio_threshold,
+                ),
+                "rf_row_threshold": rf_result.get("row_threshold", 0.0),
+                "rf_row_attack_count": rf_result.get("row_attack_count", 0),
+                "rf_row_benign_count": rf_result.get("row_benign_count", 0),
+                "rows_scored": rf_result.get("rows_scored", 0),
+                "input_file_exists": rf_result.get("input_file_exists", False),
+                "input_file_size_bytes": rf_result.get("input_file_size_bytes", 0),
+                "raw_rows_loaded": rf_result.get("raw_rows_loaded", 0),
+                "rows_after_cleanup": rf_result.get("rows_after_cleanup", 0),
+                "missing_columns": rf_result.get("missing_columns", []),
+                "rf_artifact_path": rf_artifact_path,
+                "note": "saved RF inference on uploaded CICFlowMeter-compatible flow CSV; no retraining",
+            }
             if rf_result.get("status") != "success" or int(rf_result.get("rows_scored", 0) or 0) <= 0:
-                print(
-                    "[SPARK] RF inference scored no rows; falling back to live tshark flow rules",
-                    flush=True,
-                )
-                ids_result = run_live_fallback(row, file_path)
-            else:
-                evidence = {
-                    "original_pcap_path": file_path,
-                    "matched_flow_csv_path": matched_flow_csv_path,
-                    "evidence_source": "saved_rf_artifact_inference",
-                    "rf_attack_ratio": rf_result.get("attack_ratio", 0.0),
-                    "rf_file_attack_ratio_threshold": rf_result.get(
-                        "file_attack_ratio_threshold",
-                        rf_file_attack_ratio_threshold,
-                    ),
-                    "rf_row_threshold": rf_result.get("row_threshold", 0.0),
-                    "rf_row_attack_count": rf_result.get("row_attack_count", 0),
-                    "rf_row_benign_count": rf_result.get("row_benign_count", 0),
-                    "rows_scored": rf_result.get("rows_scored", 0),
-                    "rf_artifact_path": rf_artifact_path,
-                    "note": "saved RF inference on CICFlowMeter-compatible CSV; no retraining",
+                _log_rf_result("[SPARK] RF inference failed for uploaded flow CSV:", rf_result)
+                evidence["rf_error"] = rf_result.get("error", "zero rows scored")
+                ids_result = {
+                    "status": rf_result.get("status", "error"),
+                    "prediction": "error",
+                    "severity": "info",
+                    "attack_type": "RFInferenceError",
+                    "stage": "spark_saved_rf_artifact_demo",
+                    "evidence": evidence,
                 }
+            else:
                 ids_result = {
                     "status": rf_result.get("status", "success"),
                     "prediction": rf_result.get("prediction", "benign"),
@@ -253,13 +286,68 @@ def print_batch(batch_df: DataFrame, batch_id: int) -> None:
                     "evidence": evidence,
                 }
         else:
-            print("[SPARK] no matching CICFlowMeter CSV found; falling back to live tshark flow rules", flush=True)
-            ids_result = run_live_fallback(row, file_path)
+            print("[SPARK] resolving PCAP to CICFlowMeter CSV", flush=True)
+            resolver_result = resolve_pcap_to_flow_csv(file_path, csv_root=csv_root)
+            matched_flow_csv_path = str(resolver_result.get("flow_csv_path", "") or "")
+
+            if matched_flow_csv_path and Path(matched_flow_csv_path).exists():
+                print(f"[SPARK] using saved RF inference adapter: {matched_flow_csv_path}", flush=True)
+                rf_result = run_rf_inference_on_flow_csv(
+                    flow_csv_path=matched_flow_csv_path,
+                    artifact_path=rf_artifact_path,
+                    file_attack_ratio_threshold=rf_file_attack_ratio_threshold,
+                )
+                print(
+                    f"[SPARK] RF attack_ratio={float(rf_result.get('attack_ratio', 0.0)):.4f}, "
+                    f"rows_scored={rf_result.get('rows_scored', 0)}, "
+                    f"prediction={rf_result.get('prediction', 'benign')}",
+                    flush=True,
+                )
+                if rf_result.get("status") != "success" or int(rf_result.get("rows_scored", 0) or 0) <= 0:
+                    _log_rf_result("[SPARK] RF inference failed for matched CSV:", rf_result)
+                    print(
+                        "[SPARK] RF inference scored no rows; falling back to live tshark flow rules",
+                        flush=True,
+                    )
+                    ids_result = run_live_fallback(row, file_path)
+                else:
+                    evidence = {
+                        "original_pcap_path": file_path,
+                        "matched_flow_csv_path": matched_flow_csv_path,
+                        "evidence_source": "saved_rf_artifact_inference",
+                        "rf_attack_ratio": rf_result.get("attack_ratio", 0.0),
+                        "rf_file_attack_ratio_threshold": rf_result.get(
+                            "file_attack_ratio_threshold",
+                            rf_file_attack_ratio_threshold,
+                        ),
+                        "rf_row_threshold": rf_result.get("row_threshold", 0.0),
+                        "rf_row_attack_count": rf_result.get("row_attack_count", 0),
+                        "rf_row_benign_count": rf_result.get("row_benign_count", 0),
+                        "rows_scored": rf_result.get("rows_scored", 0),
+                        "input_file_exists": rf_result.get("input_file_exists", False),
+                        "input_file_size_bytes": rf_result.get("input_file_size_bytes", 0),
+                        "raw_rows_loaded": rf_result.get("raw_rows_loaded", 0),
+                        "rows_after_cleanup": rf_result.get("rows_after_cleanup", 0),
+                        "missing_columns": rf_result.get("missing_columns", []),
+                        "rf_artifact_path": rf_artifact_path,
+                        "note": "saved RF inference on CICFlowMeter-compatible CSV; no retraining",
+                    }
+                    ids_result = {
+                        "status": rf_result.get("status", "success"),
+                        "prediction": rf_result.get("prediction", "benign"),
+                        "severity": rf_result.get("severity", "info"),
+                        "attack_type": "RFArtifactAttack" if rf_result.get("prediction") == "attack" else "BENIGN",
+                        "stage": "spark_saved_rf_artifact_demo",
+                        "evidence": evidence,
+                    }
+            else:
+                print("[SPARK] no matching CICFlowMeter CSV found; falling back to live tshark flow rules", flush=True)
+                ids_result = run_live_fallback(row, file_path)
         prediction = ids_result.get("prediction", "benign")
         severity = ids_result.get("severity", "info")
         stage = ids_result.get("stage", "spark_real_ids_artifact_demo")
         evidence = ids_result.get("evidence", {})
-        print(f"[SPARK] received PCAP: {evidence.get('original_pcap_path', file_path)}", flush=True)
+        print(f"[SPARK] received file: {evidence.get('original_pcap_path') or evidence.get('original_flow_csv_path') or file_path}", flush=True)
         print(f"[SPARK] extracted flow CSV: {evidence.get('extracted_flow_csv_path', '')}", flush=True)
         print(f"[SPARK] matched flow CSV: {evidence.get('matched_flow_csv_path', '')}", flush=True)
         print(f"[SPARK] detection_reason: {evidence.get('detection_reason', '')}", flush=True)
@@ -270,6 +358,8 @@ def print_batch(batch_df: DataFrame, batch_id: int) -> None:
             alert = _build_alert(row, ids_result)
             tenant_id = alert.get("tenant_id", row["tenant_id"] or "unknown_tenant")
             _publish_alert_to_kafka(alert_producer, str(tenant_id), alert)
+        elif prediction == "error":
+            print("[SPARK] RF inference error, no alert dispatched", flush=True)
         else:
             print("[SPARK] benign result, no alert dispatched", flush=True)
 

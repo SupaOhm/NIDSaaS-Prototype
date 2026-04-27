@@ -70,6 +70,52 @@ Expected result:
 - Alert Delivery forwards to `http://localhost:9001/webhook/tenant_A`.
 - The alert appears at `http://localhost:9001/alerts/tenant_A/view`.
 
+## RF Flow CSV Demo Mode
+
+The saved RF model requires CICFlowMeter-compatible flow features. Full PCAP files are large, and live CICFlowMeter extraction is outside the short presentation window. For that reason, the demo supports direct upload of real CICFlowMeter CSV flows from CIC-IDS2017.
+
+This still exercises the real demo pipeline:
+
+```text
+CSV upload -> Gateway -> Kafka raw.tenant.<tenant_id> -> Spark -> saved RF inference -> Kafka alert.tenant.<tenant_id> -> Alert Delivery -> Webhook UI
+```
+
+Upload a benign sample CSV:
+
+```bash
+./scripts/test/pcap_upload.sh --csv -d data/samples/csv/benign.csv -t tenant_A
+```
+
+Expected result:
+
+- Spark runs saved RF inference on the uploaded CSV.
+- The result is benign.
+- No alert is published.
+
+Upload an attack sample CSV:
+
+```bash
+./scripts/test/pcap_upload.sh --csv -d data/samples/csv/ddos.csv -t tenant_A
+```
+
+Expected result:
+
+- Spark runs saved RF inference on the uploaded CSV.
+- Spark publishes to `alert.tenant.tenant_A`.
+- Alert Delivery forwards to the webhook UI.
+
+Upload a full local CIC-IDS2017 CSV:
+
+```bash
+./scripts/test/pcap_upload.sh --csv -d data/csv/csv_CIC_IDS2017/Friday-WorkingHours-Afternoon-DDos.pcap_ISCX.csv -t tenant_A
+```
+
+Short wrapper:
+
+```bash
+./scripts/test/upload_flow_csv.sh data/samples/csv/ddos.csv tenant_A
+```
+
 ## Reset Between Demos
 
 Use reset when you want a clean visual demo without restarting Kafka or Spark:
