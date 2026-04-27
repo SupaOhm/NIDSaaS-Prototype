@@ -20,19 +20,18 @@ _ALERT_STREAMS: dict[str, set[asyncio.Queue[dict[str, Any]]]] = defaultdict(set)
 def _evidence_summary(alert: dict[str, Any]) -> str:
     evidence = alert.get("evidence", {})
     if isinstance(evidence, dict):
-        summary = {
-            "original_pcap_path": evidence.get("original_pcap_path"),
-            "matched_flow_csv_path": evidence.get("matched_flow_csv_path"),
-            "evidence_source": evidence.get("evidence_source"),
-            "attack_label_count": evidence.get("attack_label_count"),
-            "attack_prediction_count": evidence.get("attack_prediction_count"),
-            "total_rows_sampled": evidence.get("total_rows_sampled"),
-            "ids_artifacts_dir": evidence.get("ids_artifacts_dir"),
-        }
-        return json.dumps(
-            {key: value for key, value in summary.items() if value not in (None, "")},
-            sort_keys=True,
-        )
+        def _sanitize(value: Any) -> Any:
+            if isinstance(value, dict):
+                return {
+                    key: _sanitize(child)
+                    for key, child in value.items()
+                    if child not in (None, "")
+                }
+            if isinstance(value, list):
+                return [_sanitize(child) for child in value if child not in (None, "")]
+            return value
+
+        return json.dumps(_sanitize(evidence), sort_keys=True, default=str)
     return str(evidence)
 
 
@@ -67,6 +66,17 @@ async def receive_webhook(tenant_id: str, request: Request) -> dict[str, Any]:
         "status": "received",
         "tenant_id": tenant_id,
         "count": len(_ALERTS[tenant_id]),
+    }
+
+
+@app.post("/admin/clear-alerts")
+async def clear_alerts() -> dict[str, str]:
+    for tenant_id in list(_ALERTS):
+        _ALERTS[tenant_id].clear()
+    print("[WEBHOOK] cleared in-memory alerts", flush=True)
+    return {
+        "status": "cleared",
+        "message": "in-memory alerts cleared",
     }
 
 
@@ -150,7 +160,7 @@ def view_alerts(tenant_id: str) -> str:
       <body>
         <h1>Alerts for {escape(tenant_id)}</h1>
         <p class="muted">Tenant webhook receiver storage. Alerts are held in memory for this local demo process.</p>
-        <p><a href="/">All tenants</a> | <a href="/alerts/{escape(tenant_id)}">JSON</a> | <button type="button" onclick="window.location.reload()">Refresh manually</button></p>
+        <p><a href="/">All tenants</a> | <a href="/alerts/{escape(tenant_id)}">JSON</a> | <button type="button" onclick="window.location.reload()">Refresh manually</button> | <button type="button" id="clear-alerts">Clear alerts</button></p>
         <p><span id="live-status" class="status disconnected">Live connecting...</span> <span class="muted">Last updated: <span id="last-updated">initial load</span></span></p>
         <table>
           <thead>
@@ -172,6 +182,7 @@ def view_alerts(tenant_id: str) -> str:
           const statusEl = document.getElementById("live-status");
           const lastUpdatedEl = document.getElementById("last-updated");
           const tbody = document.getElementById("alerts-body");
+          const clearButton = document.getElementById("clear-alerts");
 
           function summarizeEvidence(alert) {{
             const evidence = alert.evidence || {{}};
@@ -224,6 +235,26 @@ def view_alerts(tenant_id: str) -> str:
             tbody.appendChild(row);
             lastUpdatedEl.textContent = new Date().toLocaleTimeString();
           }}
+
+          async function clearAlerts() {{
+            clearButton.disabled = true;
+            try {{
+              const response = await fetch("/admin/clear-alerts", {{ method: "POST" }});
+              if (!response.ok) {{
+                throw new Error(`status ${{response.status}}`);
+              }}
+              tbody.innerHTML = '<tr><td colspan="8">No alerts received yet.</td></tr>';
+              lastUpdatedEl.textContent = new Date().toLocaleTimeString();
+            }} finally {{
+              clearButton.disabled = false;
+            }}
+          }}
+
+          clearButton.addEventListener("click", () => {{
+            clearAlerts().catch((error) => {{
+              console.error("failed to clear alerts", error);
+            }});
+          }});
 
           const events = new EventSource(`/alerts/${{encodeURIComponent(tenantId)}}/stream`);
           events.addEventListener("status", () => {{

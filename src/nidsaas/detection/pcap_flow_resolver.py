@@ -11,17 +11,6 @@ import re
 from pathlib import Path
 
 
-ATTACK_NAME_HINTS = (
-    "ddos",
-    "portscan",
-    "infilteration",
-    "webattacks",
-    "webattack",
-    "bot",
-    "bruteforce",
-    "heartbleed",
-)
-
 SAMPLE_PCAP_CSV_MAP = {
     "cic_benign_sample.pcap": (
         "cic_benign_sample.csv",
@@ -45,6 +34,39 @@ SAMPLE_PCAP_CSV_MAP = {
     ),
 }
 
+SHORT_DEMO_PCAP_CSV_MAP = {
+    "ddos.pcap": (
+        "data/samples/csv/ddos.csv",
+        "data/samples/csv/cic_ddos_true_sample.csv",
+        "Friday-WorkingHours-Afternoon-DDos.pcap_ISCX.csv",
+    ),
+    "portscan.pcap": (
+        "data/samples/csv/portscan.csv",
+        "data/samples/csv/cic_portscan_true_sample.csv",
+        "Friday-WorkingHours-Afternoon-PortScan.pcap_ISCX.csv",
+    ),
+    "bot.pcap": (
+        "data/samples/csv/bot.csv",
+        "data/samples/csv/cic_bot_true_sample.csv",
+        "Friday-WorkingHours-Morning.pcap_ISCX.csv",
+    ),
+    "benign.pcap": (
+        "data/samples/csv/benign.csv",
+        "data/samples/csv/cic_benign_true_sample.csv",
+        "Monday-WorkingHours.pcap_ISCX.csv",
+    ),
+    "webattack.pcap": (
+        "data/samples/csv/webattack.csv",
+        "data/samples/csv/cic_webattack_true_sample.csv",
+        "Thursday-WorkingHours-Morning-WebAttacks.pcap_ISCX.csv",
+    ),
+    "infiltration.pcap": (
+        "data/samples/csv/infiltration.csv",
+        "data/samples/csv/cic_infiltration_true_sample.csv",
+        "Thursday-WorkingHours-Afternoon-Infilteration.pcap_ISCX.csv",
+    ),
+}
+
 
 def _normalize_name(value: str) -> str:
     return (
@@ -56,35 +78,8 @@ def _normalize_name(value: str) -> str:
     )
 
 
-def _candidate_score(pcap_name: str, csv_path: Path) -> tuple[int, str]:
-    pcap_norm = _normalize_name(pcap_name)
-    csv_norm = _normalize_name(csv_path.name)
-    score = 0
-
-    if csv_path.name == f"{pcap_name}_ISCX.csv":
-        score += 1000
-    if csv_norm == pcap_norm:
-        score += 800
-    if csv_norm.startswith(pcap_norm):
-        score += 500
-    if pcap_norm.startswith(csv_norm):
-        score += 250
-    if any(hint in csv_norm for hint in ATTACK_NAME_HINTS):
-        score += 50
-
-    return score, csv_path.name
-
-
-def _pcap_name_candidates(pcap_name: str) -> list[str]:
-    candidates = [pcap_name]
-    stripped = re.sub(r"^[0-9a-fA-F]{12}_", "", pcap_name)
-    if stripped != pcap_name:
-        candidates.append(stripped)
-    for candidate in list(candidates):
-        sample_stripped = candidate.replace(".sample.pcap", ".pcap")
-        if sample_stripped != candidate:
-            candidates.append(sample_stripped)
-    return candidates
+def _strip_gateway_prefix(pcap_name: str) -> str:
+    return re.sub(r"^[0-9a-fA-F]{12}_", "", pcap_name).strip().lower()
 
 
 def _first_existing(root: Path, names: tuple[str, ...]) -> Path | None:
@@ -95,32 +90,8 @@ def _first_existing(root: Path, names: tuple[str, ...]) -> Path | None:
     return None
 
 
-def _generic_sample_match(pcap_name: str, root: Path) -> tuple[Path, str] | None:
-    normalized = re.sub(r"^[0-9a-fA-F]{12}_", "", pcap_name)
-    if normalized == "cic_attack_sample.pcap":
-        match = _first_existing(
-            root,
-            (
-                "Friday-WorkingHours-Afternoon-DDos.pcap_ISCX.csv",
-                "Friday-WorkingHours-Afternoon-PortScan.pcap_ISCX.csv",
-                "Friday-WorkingHours.pcap_ISCX.csv",
-            ),
-        )
-        if match is not None:
-            return match, "generic attack sample mapped to preferred CIC attack CSV"
-        friday_matches = sorted(root.glob("*Friday*.csv"))
-        if friday_matches:
-            return friday_matches[0], "generic attack sample mapped to first Friday CIC CSV"
-    if normalized == "cic_benign_sample.pcap":
-        match = _first_existing(root, ("Monday-WorkingHours.pcap_ISCX.csv",))
-        if match is not None:
-            return match, "generic benign sample mapped to Monday CIC CSV"
-    return None
-
-
 def _sample_csv_match(pcap_name: str, full_csv_root: Path) -> tuple[Path, str] | None:
-    normalized = re.sub(r"^[0-9a-fA-F]{12}_", "", pcap_name)
-    csv_names = SAMPLE_PCAP_CSV_MAP.get(normalized)
+    csv_names = SAMPLE_PCAP_CSV_MAP.get(pcap_name)
     if csv_names is None:
         return None
 
@@ -131,6 +102,22 @@ def _sample_csv_match(pcap_name: str, full_csv_root: Path) -> tuple[Path, str] |
     fallback_csv = full_csv_root / csv_names[1]
     if fallback_csv.exists():
         return fallback_csv, "demo sample PCAP mapped to exact full CICFlowMeter CSV fallback"
+    return None
+
+
+def _short_demo_csv_match(pcap_name: str, full_csv_root: Path) -> tuple[Path, str] | None:
+    csv_names = SHORT_DEMO_PCAP_CSV_MAP.get(pcap_name)
+    if csv_names is None:
+        return None
+
+    for csv_name in csv_names[:2]:
+        sample_csv = Path(csv_name)
+        if sample_csv.exists():
+            return sample_csv, "short demo PCAP mapped to matching sample CSV"
+
+    fallback_csv = full_csv_root / csv_names[2]
+    if fallback_csv.exists():
+        return fallback_csv, "short demo PCAP mapped to exact full CICFlowMeter CSV fallback"
     return None
 
 
@@ -150,8 +137,7 @@ def resolve_pcap_to_flow_csv(
     """
     pcap = Path(pcap_path)
     root = Path(csv_root)
-    pcap_name = pcap.name
-    pcap_candidates = _pcap_name_candidates(pcap_name)
+    pcap_name = _strip_gateway_prefix(pcap.name)
 
     if not pcap_name:
         return {
@@ -171,6 +157,16 @@ def resolve_pcap_to_flow_csv(
             "reason": reason,
         }
 
+    short_demo_match = _short_demo_csv_match(pcap_name, root)
+    if short_demo_match is not None:
+        csv_path, reason = short_demo_match
+        return {
+            "status": "matched",
+            "pcap_path": pcap_path,
+            "flow_csv_path": str(csv_path),
+            "reason": reason,
+        }
+
     if not root.exists():
         return {
             "status": "not_found",
@@ -179,47 +175,9 @@ def resolve_pcap_to_flow_csv(
             "reason": f"CSV root not found: {csv_root}",
         }
 
-    generic_match = _generic_sample_match(pcap_name, root)
-    if generic_match is not None:
-        csv_path, reason = generic_match
-        return {
-            "status": "matched",
-            "pcap_path": pcap_path,
-            "flow_csv_path": str(csv_path),
-            "reason": reason,
-        }
-
-    for candidate_name in pcap_candidates:
-        exact = root / f"{candidate_name}_ISCX.csv"
-        if exact.exists():
-            return {
-                "status": "matched",
-                "pcap_path": pcap_path,
-                "flow_csv_path": str(exact),
-                "reason": f"exact CICFlowMeter CSV match for {candidate_name}",
-            }
-
-    csv_files = sorted(root.glob("*.csv"))
-    scored = []
-    for candidate_name in pcap_candidates:
-        for csv_path in csv_files:
-            score = _candidate_score(candidate_name, csv_path)
-            if score[0] > 0:
-                scored.append((score, candidate_name, csv_path))
-    if scored:
-        scored.sort(key=lambda item: item[0], reverse=True)
-        best_candidate = scored[0][1]
-        best = scored[0][2]
-        return {
-            "status": "matched",
-            "pcap_path": pcap_path,
-            "flow_csv_path": str(best),
-            "reason": f"prefix/normalized CICFlowMeter CSV match for {best_candidate}",
-        }
-
     return {
         "status": "not_found",
         "pcap_path": pcap_path,
         "flow_csv_path": "",
-        "reason": f"no CICFlowMeter CSV matched {pcap_name} under {csv_root}",
+        "reason": f"no exact CICFlowMeter CSV mapping matched {pcap_name} under {csv_root}",
     }

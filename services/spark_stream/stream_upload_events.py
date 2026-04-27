@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import sys
 import uuid
@@ -11,6 +12,8 @@ from pathlib import Path
 from pyspark.sql import DataFrame, SparkSession
 from pyspark.sql.functions import col, from_json
 from pyspark.sql.types import LongType, StringType, StructField, StructType
+from kafka import KafkaProducer
+from kafka.errors import KafkaError
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -23,7 +26,6 @@ from nidsaas.detection.demo_inference_adapter import run_demo_ids_inference
 from nidsaas.detection.pcap_flow_resolver import resolve_pcap_to_flow_csv
 from nidsaas.detection.live_flow_extractor import extract_flows_from_pcap
 from nidsaas.detection.rf_inference_adapter import run_rf_inference_on_flow_csv
-from services.alert_dispatcher.dispatcher import dispatch_alert
 
 
 UPLOAD_EVENT_SCHEMA = StructType(
@@ -79,11 +81,7 @@ def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def _webhook_url(base_url: str, tenant_id: str) -> str:
-    return f"{base_url.rstrip('/')}/webhook/{tenant_id}"
-
-
-def _build_alert(row, ids_result: dict, webhook_base_url: str) -> tuple[dict, str]:
+def _build_alert(row, ids_result: dict) -> dict:
     tenant_id = row["tenant_id"] or "unknown_tenant"
     file_path = row["file_path"] or ""
     file_name = Path(file_path).name
@@ -111,7 +109,40 @@ def _build_alert(row, ids_result: dict, webhook_base_url: str) -> tuple[dict, st
         },
         "timestamp": _utc_now(),
     }
-    return alert, _webhook_url(webhook_base_url, tenant_id)
+    return alert
+
+
+def _build_kafka_producer(bootstrap_servers: str) -> KafkaProducer | None:
+    servers = [server.strip() for server in bootstrap_servers.split(",") if server.strip()]
+    if not servers:
+        print("[SPARK] no Kafka bootstrap servers configured for alert publication", flush=True)
+        return None
+    try:
+        return KafkaProducer(
+            bootstrap_servers=servers,
+            value_serializer=lambda payload: json.dumps(payload, default=str).encode("utf-8"),
+            linger_ms=10,
+            retries=3,
+        )
+    except Exception as exc:
+        print(f"[SPARK] failed to initialize Kafka producer: {exc}", flush=True)
+        return None
+
+
+def _publish_alert_to_kafka(producer: KafkaProducer | None, tenant_id: str, alert: dict) -> bool:
+    if producer is None:
+        print("[SPARK] no Kafka producer available; alert not published", flush=True)
+        return False
+
+    topic = f"alert.tenant.{tenant_id}"
+    try:
+        producer.send(topic, alert).get(timeout=10)
+        producer.flush()
+        print(f"[SPARK] published alert to Kafka topic {topic}", flush=True)
+        return True
+    except KafkaError as exc:
+        print(f"[SPARK] failed to publish alert to Kafka topic {topic}: {exc}", flush=True)
+        return False
 
 
 def print_batch(batch_df: DataFrame, batch_id: int) -> None:
@@ -123,10 +154,35 @@ def print_batch(batch_df: DataFrame, batch_id: int) -> None:
     artifacts_dir = os.getenv("IDS_ARTIFACTS_DIR", "outputs/offline_adapter_test")
     csv_root = os.getenv("CIC_FLOW_CSV_ROOT", "data/csv/csv_CIC_IDS2017")
     live_flow_output_dir = os.getenv("LIVE_FLOW_OUTPUT_DIR", "outputs/live_flows")
-    webhook_base_url = os.getenv("WEBHOOK_BASE_URL", "http://host.docker.internal:9001")
     result_rows = []
     rf_artifact_path = os.getenv("RF_ARTIFACT_PATH", "outputs/offline_adapter_test/rf_anomaly.joblib")
     rf_file_attack_ratio_threshold = float(os.getenv("RF_FILE_ATTACK_RATIO_THRESHOLD", "0.20"))
+    kafka_bootstrap_servers = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092")
+    alert_producer = _build_kafka_producer(kafka_bootstrap_servers)
+
+    def run_live_fallback(row, file_path: str) -> dict:
+        print("[SPARK] extracting live flows from uploaded PCAP", flush=True)
+        extraction_metadata = extract_flows_from_pcap(
+            file_path,
+            output_dir=live_flow_output_dir,
+        )
+        extracted_flow_csv_path = str(extraction_metadata.get("extracted_flow_csv_path", ""))
+        print(f"[SPARK] extracted flow CSV: {extracted_flow_csv_path}", flush=True)
+        print(f"[SPARK] number_of_flows={extraction_metadata.get('number_of_flows', 0)}", flush=True)
+        print("[SPARK] calling IDS demo inference adapter", flush=True)
+        live_result = run_demo_ids_inference(
+            tenant_id=row["tenant_id"] or "unknown_tenant",
+            source_id=row["source_id"] or "unknown_source",
+            file_path=file_path,
+            artifacts_dir=artifacts_dir,
+            csv_root=csv_root,
+            extracted_flow_csv_path=extracted_flow_csv_path,
+            extraction_metadata=extraction_metadata,
+        )
+        live_result["evidence"]["note"] = (
+            "live tshark flow-rule fallback; RF requires CICFlowMeter-compatible features"
+        )
+        return live_result
 
     selected = batch_df.select(
         "tenant_id",
@@ -154,64 +210,51 @@ def print_batch(batch_df: DataFrame, batch_id: int) -> None:
 
         if matched_flow_csv_path and Path(matched_flow_csv_path).exists():
             print(f"[SPARK] using saved RF inference adapter: {matched_flow_csv_path}", flush=True)
-            ids_result = run_rf_inference_on_flow_csv(
+            rf_result = run_rf_inference_on_flow_csv(
                 flow_csv_path=matched_flow_csv_path,
                 artifact_path=rf_artifact_path,
                 file_attack_ratio_threshold=rf_file_attack_ratio_threshold,
             )
             print(
-                f"[SPARK] RF attack_ratio={float(ids_result.get('attack_ratio', 0.0)):.4f}, "
-                f"rows_scored={ids_result.get('rows_scored', 0)}, "
-                f"prediction={ids_result.get('prediction', 'benign')}",
+                f"[SPARK] RF attack_ratio={float(rf_result.get('attack_ratio', 0.0)):.4f}, "
+                f"rows_scored={rf_result.get('rows_scored', 0)}, "
+                f"prediction={rf_result.get('prediction', 'benign')}",
                 flush=True,
             )
-            evidence = {
-                "original_pcap_path": file_path,
-                "matched_flow_csv_path": matched_flow_csv_path,
-                "evidence_source": "saved_rf_artifact_inference",
-                "rf_attack_ratio": ids_result.get("attack_ratio", 0.0),
-                "rf_file_attack_ratio_threshold": ids_result.get(
-                    "file_attack_ratio_threshold",
-                    rf_file_attack_ratio_threshold,
-                ),
-                "rf_row_threshold": ids_result.get("row_threshold", 0.0),
-                "rf_row_attack_count": ids_result.get("row_attack_count", 0),
-                "rf_row_benign_count": ids_result.get("row_benign_count", 0),
-                "rows_scored": ids_result.get("rows_scored", 0),
-                "rf_artifact_path": rf_artifact_path,
-                "note": "saved RF inference on CICFlowMeter-compatible CSV; no retraining",
-            }
-            ids_result = {
-                "status": ids_result.get("status", "success"),
-                "prediction": ids_result.get("prediction", "benign"),
-                "severity": ids_result.get("severity", "info"),
-                "attack_type": "RFArtifactAttack" if ids_result.get("prediction") == "attack" else "BENIGN",
-                "stage": "spark_saved_rf_artifact_demo",
-                "evidence": evidence,
-            }
+            if rf_result.get("status") != "success" or int(rf_result.get("rows_scored", 0) or 0) <= 0:
+                print(
+                    "[SPARK] RF inference scored no rows; falling back to live tshark flow rules",
+                    flush=True,
+                )
+                ids_result = run_live_fallback(row, file_path)
+            else:
+                evidence = {
+                    "original_pcap_path": file_path,
+                    "matched_flow_csv_path": matched_flow_csv_path,
+                    "evidence_source": "saved_rf_artifact_inference",
+                    "rf_attack_ratio": rf_result.get("attack_ratio", 0.0),
+                    "rf_file_attack_ratio_threshold": rf_result.get(
+                        "file_attack_ratio_threshold",
+                        rf_file_attack_ratio_threshold,
+                    ),
+                    "rf_row_threshold": rf_result.get("row_threshold", 0.0),
+                    "rf_row_attack_count": rf_result.get("row_attack_count", 0),
+                    "rf_row_benign_count": rf_result.get("row_benign_count", 0),
+                    "rows_scored": rf_result.get("rows_scored", 0),
+                    "rf_artifact_path": rf_artifact_path,
+                    "note": "saved RF inference on CICFlowMeter-compatible CSV; no retraining",
+                }
+                ids_result = {
+                    "status": rf_result.get("status", "success"),
+                    "prediction": rf_result.get("prediction", "benign"),
+                    "severity": rf_result.get("severity", "info"),
+                    "attack_type": "RFArtifactAttack" if rf_result.get("prediction") == "attack" else "BENIGN",
+                    "stage": "spark_saved_rf_artifact_demo",
+                    "evidence": evidence,
+                }
         else:
             print("[SPARK] no matching CICFlowMeter CSV found; falling back to live tshark flow rules", flush=True)
-            print("[SPARK] extracting live flows from uploaded PCAP", flush=True)
-            extraction_metadata = extract_flows_from_pcap(
-                file_path,
-                output_dir=live_flow_output_dir,
-            )
-            extracted_flow_csv_path = str(extraction_metadata.get("extracted_flow_csv_path", ""))
-            print(f"[SPARK] extracted flow CSV: {extracted_flow_csv_path}", flush=True)
-            print(f"[SPARK] number_of_flows={extraction_metadata.get('number_of_flows', 0)}", flush=True)
-            print("[SPARK] calling IDS demo inference adapter", flush=True)
-            ids_result = run_demo_ids_inference(
-                tenant_id=row["tenant_id"] or "unknown_tenant",
-                source_id=row["source_id"] or "unknown_source",
-                file_path=file_path,
-                artifacts_dir=artifacts_dir,
-                csv_root=csv_root,
-                extracted_flow_csv_path=extracted_flow_csv_path,
-                extraction_metadata=extraction_metadata,
-            )
-            ids_result["evidence"]["note"] = (
-                "live tshark flow-rule fallback; RF requires CICFlowMeter-compatible features"
-            )
+            ids_result = run_live_fallback(row, file_path)
         prediction = ids_result.get("prediction", "benign")
         severity = ids_result.get("severity", "info")
         stage = ids_result.get("stage", "spark_real_ids_artifact_demo")
@@ -224,11 +267,9 @@ def print_batch(batch_df: DataFrame, batch_id: int) -> None:
         print(f"[SPARK] prediction={prediction}", flush=True)
 
         if prediction == "attack":
-            alert, url = _build_alert(row, ids_result, webhook_base_url)
-            if dispatch_alert(alert, url):
-                print(f"[ALERT] dispatched to {url}", flush=True)
-            else:
-                print(f"[ALERT] dispatch failed for {url}", flush=True)
+            alert = _build_alert(row, ids_result)
+            tenant_id = alert.get("tenant_id", row["tenant_id"] or "unknown_tenant")
+            _publish_alert_to_kafka(alert_producer, str(tenant_id), alert)
         else:
             print("[SPARK] benign result, no alert dispatched", flush=True)
 
@@ -258,6 +299,9 @@ def print_batch(batch_df: DataFrame, batch_id: int) -> None:
             "offset",
         ).show(truncate=False)
 
+    if alert_producer is not None:
+        alert_producer.close()
+
 
 def main() -> None:
     bootstrap_servers = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092")
@@ -267,7 +311,6 @@ def main() -> None:
     rf_artifact_path = os.getenv("RF_ARTIFACT_PATH", "outputs/offline_adapter_test/rf_anomaly.joblib")
     rf_file_attack_ratio_threshold = float(os.getenv("RF_FILE_ATTACK_RATIO_THRESHOLD", "0.20"))
     csv_root = os.getenv("CIC_FLOW_CSV_ROOT", "data/csv/csv_CIC_IDS2017")
-    webhook_base_url = os.getenv("WEBHOOK_BASE_URL", "http://host.docker.internal:9001")
 
     spark = (
         SparkSession.builder.appName("nidsaas-upload-event-stream")
@@ -285,7 +328,6 @@ def main() -> None:
     print(f"[SPARK] RF file attack ratio threshold: {rf_file_attack_ratio_threshold}", flush=True)
     print(f"[SPARK] CIC flow CSV root: {csv_root}", flush=True)
     print(f"[SPARK] live flow output dir: {os.getenv('LIVE_FLOW_OUTPUT_DIR', 'outputs/live_flows')}", flush=True)
-    print(f"[SPARK] webhook base URL: {webhook_base_url}", flush=True)
     print(f"[SPARK] DEMO_FORCE_ATTACK: {os.getenv('DEMO_FORCE_ATTACK', '0')}", flush=True)
 
     stream_df = build_stream(spark, bootstrap_servers, topic_pattern)

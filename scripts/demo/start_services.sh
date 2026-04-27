@@ -74,6 +74,8 @@ fi
 
 echo "[SERVICE] Run Spark processor in another terminal:"
 echo "[SERVICE] ./scripts/demo/run_spark_processor.sh"
+echo "[SERVICE] Run alert delivery in another terminal:"
+echo "[SERVICE] ./scripts/demo/run_alert_delivery.sh"
 echo "[SERVICE] Tenant A alerts: http://localhost:9001/alerts/tenant_A/view"
 echo "[SERVICE] Tenant B alerts: http://localhost:9001/alerts/tenant_B/view"
 echo "[SERVICE] Future/optional tenant portal, not used in the main demo:"

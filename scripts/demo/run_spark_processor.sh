@@ -14,10 +14,9 @@ export LIVE_FLOW_OUTPUT_DIR="${LIVE_FLOW_OUTPUT_DIR:-outputs/live_flows}"
 export DEMO_FORCE_ATTACK="${DEMO_FORCE_ATTACK:-0}"
 DOCKER_SPARK_SUBMIT="${DOCKER_SPARK_SUBMIT:-/opt/spark/bin/spark-submit}"
 DOCKER_KAFKA_BOOTSTRAP_SERVERS="${DOCKER_KAFKA_BOOTSTRAP_SERVERS:-kafka:29092}"
-DOCKER_WEBHOOK_BASE_URL="${DOCKER_WEBHOOK_BASE_URL:-http://host.docker.internal:9001}"
 
 echo "[SPARK] main demo processing path"
-echo "[SPARK] Gateway -> Kafka -> Spark -> IDS artifact adapter -> Webhook"
+echo "[SPARK] Gateway -> Kafka -> Spark -> Kafka alert topic"
 echo "[SPARK] Kafka bootstrap servers inside Docker: ${DOCKER_KAFKA_BOOTSTRAP_SERVERS}"
 echo "[SPARK] topic pattern: ${KAFKA_TOPIC_PATTERN}"
 echo "[SPARK] IDS artifacts dir: ${IDS_ARTIFACTS_DIR}"
@@ -26,7 +25,6 @@ echo "[SPARK] RF file attack ratio threshold: ${RF_FILE_ATTACK_RATIO_THRESHOLD}"
 echo "[SPARK] CIC flow CSV root: ${CIC_FLOW_CSV_ROOT}"
 echo "[SPARK] live flow output dir: ${LIVE_FLOW_OUTPUT_DIR}"
 echo "[SPARK] Kafka connector dependency: baked into Spark Docker image"
-echo "[SPARK] webhook base URL inside Docker: ${DOCKER_WEBHOOK_BASE_URL}"
 echo "[SPARK] DEMO_FORCE_ATTACK: ${DEMO_FORCE_ATTACK}"
 
 exec docker compose run --rm \
@@ -40,7 +38,6 @@ exec docker compose run --rm \
   -e CIC_FLOW_CSV_ROOT="${CIC_FLOW_CSV_ROOT}" \
   -e LIVE_FLOW_OUTPUT_DIR="${LIVE_FLOW_OUTPUT_DIR}" \
   -e DEMO_FORCE_ATTACK="${DEMO_FORCE_ATTACK}" \
-  -e WEBHOOK_BASE_URL="${DOCKER_WEBHOOK_BASE_URL}" \
   spark \
   "${DOCKER_SPARK_SUBMIT}" \
   --master "${SPARK_MASTER}" \
