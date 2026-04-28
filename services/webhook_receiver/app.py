@@ -42,7 +42,6 @@ def _alert_row(alert: dict[str, Any], tenant_id: str) -> str:
         f"<td>{escape(str(alert.get('tenant_id', tenant_id)))}</td>"
         f"<td>{escape(str(alert.get('severity', '')))}</td>"
         f"<td>{escape(str(alert.get('prediction', '')))}</td>"
-        f"<td>{escape(str(alert.get('attack_type', '')))}</td>"
         f"<td>{escape(str(alert.get('stage', '')))}</td>"
         f"<td>{escape(str(alert.get('timestamp', '')))}</td>"
         f"<td><code>{escape(_evidence_summary(alert))}</code></td>"
@@ -138,7 +137,7 @@ def index() -> str:
 def view_alerts(tenant_id: str) -> str:
     alerts = _ALERTS.get(tenant_id, [])
     rows = [_alert_row(alert, tenant_id) for alert in alerts]
-    body = "\n".join(rows) or '<tr><td colspan="8">No alerts received yet.</td></tr>'
+    body = "\n".join(rows) or '<tr><td colspan="7">No alerts received yet.</td></tr>'
     tenant_json = json.dumps(tenant_id)
     return f"""
     <!doctype html>
@@ -169,7 +168,6 @@ def view_alerts(tenant_id: str) -> str:
               <th>Tenant</th>
               <th>Severity</th>
               <th>Prediction</th>
-              <th>Attack Type</th>
               <th>Stage</th>
               <th>Timestamp</th>
               <th>Evidence Summary</th>
@@ -228,7 +226,6 @@ def view_alerts(tenant_id: str) -> str:
             addCell(row, alert.tenant_id || tenantId);
             addCell(row, alert.severity);
             addCell(row, alert.prediction);
-            addCell(row, alert.attack_type);
             addCell(row, alert.stage);
             addCell(row, alert.timestamp);
             addCell(row, summarizeEvidence(alert), true);
@@ -243,7 +240,7 @@ def view_alerts(tenant_id: str) -> str:
               if (!response.ok) {{
                 throw new Error(`status ${{response.status}}`);
               }}
-              tbody.innerHTML = '<tr><td colspan="8">No alerts received yet.</td></tr>';
+              tbody.innerHTML = '<tr><td colspan="7">No alerts received yet.</td></tr>';
               lastUpdatedEl.textContent = new Date().toLocaleTimeString();
             }} finally {{
               clearButton.disabled = false;
